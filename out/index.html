@@ -1,0 +1,1332 @@
+<title>Surface Finish Classifier</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: instrument panel. One column, verdict first, then paired analysis cards. */
+:root{
+  --bg:#F2F5F5; --surface:#FFFFFF; --surface-2:#E9EEEE; --inset:#F7F9F9;
+  --ink:#15201F; --ink-2:#5B6C6B; --ink-3:#8A9998; --line:#D5DDDD; --line-2:#C2CDCD;
+  --accent:#0B6E7F; --on-accent:#FFFFFF; --rough:#A84A14; --smooth:#2A6A8C;
+  --warn:#8C6103; --ok:#2C6A4E; --bad:#9B2F21;
+  --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --f-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1316; --surface:#141C20; --surface-2:#1B252A; --inset:#111A1D;
+  --ink:#E1EAEB; --ink-2:#92A4A7; --ink-3:#6B7C80; --line:#263238; --line-2:#334249;
+  --accent:#4BBAC9; --on-accent:#07171B; --rough:#E08A4F; --smooth:#74B4D8;
+  --warn:#D4A544; --ok:#6CB994; --bad:#E0776A;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0D1316; --surface:#141C20; --surface-2:#1B252A; --inset:#111A1D;
+  --ink:#E1EAEB; --ink-2:#92A4A7; --ink-3:#6B7C80; --line:#263238; --line-2:#334249;
+  --accent:#4BBAC9; --on-accent:#07171B; --rough:#E08A4F; --smooth:#74B4D8;
+  --warn:#D4A544; --ok:#6CB994; --bad:#E0776A;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-size:clamp(26px,4.4vw,36px);font-weight:600;letter-spacing:-.015em}
+h2{font-size:19px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2);font-size:14px}
+
+header.top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-end;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--line)}
+header.top .lede{max-width:56ch;margin-top:6px;color:var(--ink-2);font-size:14.5px}
+.statline{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--f-mono);font-size:12px;color:var(--ink-2)}
+.statline b{color:var(--ink);font-weight:600}
+
+/* ---- intake ---- */
+.intake{margin-top:24px;display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
+@media(max-width:720px){.intake{grid-template-columns:1fr}}
+.drop{border:1.5px dashed var(--line-2);border-radius:10px;background:var(--surface);padding:22px 20px;display:flex;flex-direction:column;gap:10px;justify-content:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:var(--surface-2)}
+.drop .big{font-family:var(--f-display);font-size:17px;font-weight:600}
+.btn{font-family:var(--f-body);font-size:13.5px;font-weight:500;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:7px;padding:7px 13px;cursor:pointer;transition:background .13s,border-color .13s}
+.btn:hover{background:var(--surface-2);border-color:var(--accent)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.samples{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.samplegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.samplegrid .btn{text-align:left;display:flex;flex-direction:column;gap:1px;padding:8px 10px}
+.samplegrid .btn small{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.02em}
+
+/* ---- verdict ---- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.verdict{margin-top:22px;display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:0}
+@media(max-width:720px){.verdict{grid-template-columns:1fr}}
+.verdict .call{padding:22px 24px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;justify-content:center}
+@media(max-width:720px){.verdict .call{border-right:0;border-bottom:1px solid var(--line)}}
+.calltext{font-family:var(--f-display);font-size:clamp(32px,6.5vw,46px);font-weight:600;line-height:1.05;letter-spacing:-.02em}
+.calltext.rough{color:var(--rough)} .calltext.smooth{color:var(--smooth)} .calltext.unsure{color:var(--warn)}
+.gauge{margin-top:12px}
+.gauge .track{height:9px;border-radius:5px;background:linear-gradient(90deg,var(--smooth) 0%,var(--surface-2) 44%,var(--surface-2) 56%,var(--rough) 100%);position:relative;border:1px solid var(--line)}
+.gauge .needle{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:var(--ink);transform:translateX(-50%)}
+.gauge .ends{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);margin-top:5px;letter-spacing:.04em}
+.verdict .why{padding:20px 24px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.why .headline{font-size:14.5px;color:var(--ink-2);max-width:62ch}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--f-mono);font-size:11px;letter-spacing:.02em;border:1px solid var(--line-2);border-radius:999px;padding:3px 9px;color:var(--ink-2);background:var(--inset)}
+.chip.r{color:var(--rough);border-color:color-mix(in srgb,var(--rough) 45%,var(--line))}
+.chip.s{color:var(--smooth);border-color:color-mix(in srgb,var(--smooth) 45%,var(--line))}
+.chip.w{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+
+/* ---- grids & cards ---- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 18px;min-width:0}
+.card>header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px}
+.card .note{font-size:12.5px;color:var(--ink-3);margin-bottom:10px;max-width:60ch}
+svg{display:block;width:100%;height:auto;overflow:visible}
+
+/* ---- stats ---- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stats div{background:var(--surface);padding:10px 12px}
+.stats dt{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.stats dd{margin:2px 0 0;font-family:var(--f-mono);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* ---- checks ---- */
+ul.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+ul.checks li{display:grid;grid-template-columns:16px 1fr;gap:9px;align-items:start;font-size:13.5px}
+ul.checks .dot{width:9px;height:9px;border-radius:50%;margin-top:6px}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+ul.checks small{display:block;color:var(--ink-3);font-size:12px}
+
+/* ---- evidence ---- */
+.ev{display:flex;flex-direction:column;gap:9px}
+.evrow{display:grid;grid-template-columns:1fr 150px;gap:10px;align-items:center;font-size:13px}
+@media(max-width:420px){.evrow{grid-template-columns:1fr 96px}}
+.evrow .lab{min-width:0}
+.evrow .lab b{font-weight:500}
+.evrow .lab span{display:block;font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
+.evbar{height:16px;position:relative;background:var(--inset);border:1px solid var(--line);border-radius:3px}
+.evbar i{position:absolute;top:0;bottom:0;display:block}
+.evbar .mid{position:absolute;top:-2px;bottom:-2px;left:50%;width:1px;background:var(--line-2)}
+
+/* ---- feature table ---- */
+.ftable{width:100%;min-width:600px;border-collapse:collapse;font-size:13px}
+.ftable th{text-align:left;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:0 8px 7px 0;border-bottom:1px solid var(--line)}
+.ftable td{padding:7px 8px 7px 0;border-bottom:1px solid var(--line);vertical-align:middle}
+.ftable td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.strip{position:relative;height:14px;min-width:110px}
+.strip .band{position:absolute;height:5px;border-radius:3px;opacity:.5}
+.strip .band.r{top:1px;background:var(--rough)} .strip .band.s{top:8px;background:var(--smooth)}
+.strip .mk{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);transform:translateX(-50%)}
+
+/* ---- batch ---- */
+.btable{width:100%;min-width:520px;border-collapse:collapse;font-size:13.5px}
+.btable th{text-align:left;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:0 10px 7px 0;border-bottom:1px solid var(--line)}
+.btable td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line)}
+.btable tr.sel td{background:var(--surface-2)}
+.btable tbody tr{cursor:pointer}
+.btable tbody tr:hover td{background:var(--surface-2)}
+.tag{font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.05em;padding:2px 7px;border-radius:4px;border:1px solid}
+.tag.rough{color:var(--rough);border-color:color-mix(in srgb,var(--rough) 40%,transparent);background:color-mix(in srgb,var(--rough) 10%,transparent)}
+.tag.smooth{color:var(--smooth);border-color:color-mix(in srgb,var(--smooth) 40%,transparent);background:color-mix(in srgb,var(--smooth) 10%,transparent)}
+.tag.unsure{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+
+/* ---- model card ---- */
+.modelcard{margin-top:26px;border-top:1px solid var(--line);padding-top:22px}
+.mc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px 26px;margin-top:14px}
+.mc-grid section h3{margin-bottom:5px}
+.mc-grid p{font-size:13.5px;color:var(--ink-2);max-width:48ch}
+.mc-grid ul{margin:5px 0 0;padding-left:17px;font-size:13.5px;color:var(--ink-2)}
+.mc-grid li{margin-bottom:3px}
+.fold{margin-top:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.fold summary{cursor:pointer;padding:11px 15px;font-family:var(--f-mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+.fold summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.fold .body{padding:0 15px 15px;overflow-x:auto}
+.err{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));background:color-mix(in srgb,var(--bad) 7%,var(--surface))}
+footer.foot{margin-top:30px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:10px 20px;justify-content:space-between}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Two-point resistance log &middot; surface finish</p>
+      <h1>Surface Finish Classifier</h1>
+      <p class="lede">Upload a resistance versus reading-number CSV from the probe and the model calls the
+        surface rough or smooth, then shows the measurement it based that on.</p>
+    </div>
+    <div class="statline" id="hdrStats"></div>
+  </header>
+
+  <div class="intake">
+    <div class="drop" id="drop">
+      <p class="big">Drop CSV files here</p>
+      <p class="sub">Keithley reading logs, or any CSV with a reading number and a resistance column.
+        Several files at once are fine.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+        <button class="btn primary" id="pick" type="button">Choose files</button>
+        <button class="btn" id="clear" type="button" hidden>Clear</button>
+      </div>
+      <input type="file" id="file" accept=".csv,text/csv,text/plain" multiple hidden>
+    </div>
+    <div class="samples">
+      <p class="eyebrow">Measured examples</p>
+      <p class="sub" style="margin-top:4px;font-size:13px">Four real recordings from the study, held in the page.</p>
+      <div class="samplegrid" id="samples"></div>
+    </div>
+  </div>
+
+  <div id="report" hidden>
+    <div class="panel verdict">
+      <div class="call">
+        <p class="eyebrow" id="callFile">&nbsp;</p>
+        <p class="calltext" id="callText">&mdash;</p>
+        <div class="gauge">
+          <div class="track"><span class="needle" id="needle" style="left:50%"></span></div>
+          <div class="ends"><span>smooth</span><span id="pval">P = 0.50</span><span>rough</span></div>
+        </div>
+      </div>
+      <div class="why">
+        <p class="headline" id="whyText"></p>
+        <div class="chips" id="whyChips"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+          <button class="btn" id="copyBtn" type="button">Copy report</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="batchWrap" class="card" style="margin-top:16px" hidden>
+      <header><h2>All uploaded files</h2><span class="eyebrow" id="batchCount"></span></header>
+      <p class="note">Select a row to see its full analysis.</p>
+      <div style="overflow-x:auto"><table class="btable">
+        <thead><tr><th>File</th><th>Call</th><th>P(rough)</th><th>Readings</th><th>Contact loss</th><th>Quality</th></tr></thead>
+        <tbody id="batchBody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <header><h2>Resistance trace</h2><span class="eyebrow" id="spanLabel"></span></header>
+      <p class="note">Log scale. The shaded stretch is the loaded scan the model reads; the quiet rest
+        baseline before it and the settled tail are outside it. Marks on the top rule are readings where the
+        probe lost contact.</p>
+      <div id="chartTrace"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <header><h2>Fluctuation</h2></header>
+        <p class="note">The scan with its slow drift removed, in decades of resistance. This is the
+          signal the roughness features are measured on.</p>
+        <div id="chartFluct"></div>
+      </div>
+      <div class="card">
+        <header><h2>Fluctuation by scale</h2></header>
+        <p class="note">How much the trace varies over windows of 3 to 65 readings. A rough surface keeps
+          more variation at the short scales.</p>
+        <div id="chartScale"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <header><h2>What drove the call</h2></header>
+        <p class="note">Each measurement's push on the decision, in log-odds. Bars to the right argue
+          rough, to the left smooth.</p>
+        <div class="ev" id="evidence"></div>
+      </div>
+      <div class="card">
+        <header><h2>Measurement summary</h2></header>
+        <p class="note">Taken over the whole file.</p>
+        <dl class="stats" id="stats"></dl>
+        <h3 style="margin-top:16px;margin-bottom:8px">Data quality</h3>
+        <ul class="checks" id="checks"></ul>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <header><h2>Every feature against the training set</h2></header>
+      <p class="note">The marker is this recording. The bars behind it span the 10th to 90th percentile of
+        the rough and smooth recordings the model was trained on.</p>
+      <div style="overflow-x:auto"><table class="ftable">
+        <thead><tr><th>Measurement</th><th style="text-align:right">This file</th>
+          <th style="text-align:right">Rough median</th><th style="text-align:right">Smooth median</th>
+          <th style="width:180px">Position</th></tr></thead>
+        <tbody id="featBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="errs"></div>
+
+  <div class="modelcard">
+    <p class="eyebrow">Model card</p>
+    <h2 style="margin-top:4px">How this was built, and what it cannot do</h2>
+    <div class="mc-grid" id="mcGrid"></div>
+    <details class="fold">
+      <summary>Per-recording validation results</summary>
+      <div class="body"><table class="btable" id="losoTable"></table></div>
+    </details>
+  </div>
+
+  <footer class="foot">
+    <span>Features and model run in this page. Nothing is uploaded.</span>
+    <span class="mono" id="footVer"></span>
+  </footer>
+</div>
+<script>
+/* Surface classifier engine.
+   A line-for-line port of the Python feature pipeline, so the page computes
+   exactly what the model was trained on. Verified against the Python
+   implementation on every labelled recording. */
+(function (root) {
+  "use strict";
+
+  var OVERFLOW_MIN = 1e30;
+
+  /* ---------- small numeric helpers, matching numpy semantics ---------- */
+
+  function median(a) {
+    if (!a.length) return NaN;
+    var s = Float64Array.from(a).sort();
+    var n = s.length, h = n >> 1;
+    return n % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+  }
+
+  function percentile(a, q) {            // numpy's default linear method
+    if (!a.length) return NaN;
+    var s = Float64Array.from(a).sort();
+    var idx = (q / 100) * (s.length - 1);
+    var lo = Math.floor(idx), hi = Math.ceil(idx);
+    if (lo === hi) return s[lo];
+    return s[lo] + (idx - lo) * (s[hi] - s[lo]);
+  }
+
+  function mean(a) {
+    var t = 0;
+    for (var i = 0; i < a.length; i++) t += a[i];
+    return t / a.length;
+  }
+
+  function std(a) {
+    if (!a.length) return NaN;
+    var m = mean(a), t = 0;
+    for (var i = 0; i < a.length; i++) { var d = a[i] - m; t += d * d; }
+    return Math.sqrt(t / a.length);
+  }
+
+  function diff(a) {
+    var o = new Float64Array(Math.max(0, a.length - 1));
+    for (var i = 1; i < a.length; i++) o[i - 1] = a[i] - a[i - 1];
+    return o;
+  }
+
+  function absArr(a) {
+    var o = new Float64Array(a.length);
+    for (var i = 0; i < a.length; i++) o[i] = Math.abs(a[i]);
+    return o;
+  }
+
+  function polyfit1(x, y) {            // least squares slope + intercept
+    var n = x.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (var i = 0; i < n; i++) { sx += x[i]; sy += y[i]; sxx += x[i] * x[i]; sxy += x[i] * y[i]; }
+    var den = n * sxx - sx * sx;
+    if (Math.abs(den) < 1e-300) return [0, sy / n];
+    var m = (n * sxy - sx * sy) / den;
+    return [m, (sy - m * sx) / n];
+  }
+
+  /* real FFT power spectrum, |rfft(x)|^2, length n/2+1 */
+  function rfftPower(x) {
+    var n = x.length, k = (n >> 1) + 1, out = new Float64Array(k);
+    for (var f = 0; f < k; f++) {
+      var re = 0, im = 0, w = (-2 * Math.PI * f) / n;
+      for (var t = 0; t < n; t++) {
+        var a = w * t;
+        re += x[t] * Math.cos(a);
+        im += x[t] * Math.sin(a);
+      }
+      out[f] = re * re + im * im;
+    }
+    return out;
+  }
+
+  function hanning(M) {               // np.hanning
+    var o = new Float64Array(M);
+    if (M === 1) { o[0] = 1; return o; }
+    for (var i = 0; i < M; i++) o[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (M - 1));
+    return o;
+  }
+
+  function factorial(n) { var r = 1; for (var i = 2; i <= n; i++) r *= i; return r; }
+
+  /* Python's round(): halves go to the even neighbour, unlike Math.round
+     which always rounds a half upwards. The crop lengths are derived with it,
+     so getting this wrong silently shifts the analysis windows. */
+  function pyRound(x) {
+    var f = Math.floor(x), d = x - f;
+    if (d > 0.5) return f + 1;
+    if (d < 0.5) return f;
+    return f % 2 === 0 ? f : f + 1;
+  }
+
+  /* ---------- signal preparation ---------- */
+
+  /* log10 of readings; contact-loss readings are interpolated over but
+     reported separately in `bad`. */
+  function logSignal(raw) {
+    var n = raw.length, y = new Float64Array(n), bad = new Uint8Array(n), nok = 0;
+    for (var i = 0; i < n; i++) {
+      var v = raw[i];
+      var isBad = !isFinite(v) || v <= 0 || v >= OVERFLOW_MIN;
+      bad[i] = isBad ? 1 : 0;
+      if (!isBad) { y[i] = Math.log10(v); nok++; } else y[i] = NaN;
+    }
+    if (nok === 0) return { y: null, bad: bad };
+    if (nok < n) {
+      var idx = [], val = [];
+      for (var j = 0; j < n; j++) if (!bad[j]) { idx.push(j); val.push(y[j]); }
+      for (var k = 0; k < n; k++) {
+        if (!bad[k]) continue;
+        if (k <= idx[0]) { y[k] = val[0]; continue; }
+        if (k >= idx[idx.length - 1]) { y[k] = val[val.length - 1]; continue; }
+        var a = 0, b = idx.length - 1;
+        while (b - a > 1) { var m = (a + b) >> 1; if (idx[m] <= k) a = m; else b = m; }
+        var f = (k - idx[a]) / (idx[b] - idx[a]);
+        y[k] = val[a] + f * (val[b] - val[a]);
+      }
+    }
+    return { y: y, bad: bad };
+  }
+
+  /* moving standard deviation, unpadded (length n-w+1), as in features.py */
+  function movingStd(y, w) {
+    var n = y.length;
+    if (n < w + 1) return new Float64Array([std(y)]);
+    var c1 = new Float64Array(n + 1), c2 = new Float64Array(n + 1);
+    for (var i = 0; i < n; i++) { c1[i + 1] = c1[i] + y[i]; c2[i + 1] = c2[i] + y[i] * y[i]; }
+    var out = new Float64Array(n - w + 1);
+    for (var j = 0; j + w <= n; j++) {
+      var s1 = c1[j + w] - c1[j], s2 = c2[j + w] - c2[j];
+      out[j] = Math.sqrt(Math.max(s2 / w - (s1 / w) * (s1 / w), 0));
+    }
+    return out;
+  }
+
+  /* padded moving std (length n), as in segment.py */
+  function movingStdPad(y, w) {
+    var n = y.length;
+    w = Math.max(3, Math.min(w | 0, n));
+    var c1 = new Float64Array(n + 1), c2 = new Float64Array(n + 1);
+    for (var i = 0; i < n; i++) { c1[i + 1] = c1[i] + y[i]; c2[i + 1] = c2[i] + y[i] * y[i]; }
+    var m = n - w + 1, s = new Float64Array(m);
+    for (var j = 0; j < m; j++) {
+      var s1 = c1[j + w] - c1[j], s2 = c2[j + w] - c2[j];
+      s[j] = Math.sqrt(Math.max(s2 / w - (s1 / w) * (s1 / w), 0));
+    }
+    var pad = n - m, left = pad >> 1, o = new Float64Array(n);
+    for (var a = 0; a < left; a++) o[a] = s[0];
+    for (var b = 0; b < m; b++) o[left + b] = s[b];
+    for (var c = left + m; c < n; c++) o[c] = s[m - 1];
+    return o;
+  }
+
+  /* edge-padded moving average, matching the detrend in features.py */
+  function movingAvgEdge(y, w) {
+    var n = y.length, half = w >> 1, L = n + 2 * half;
+    var pad = new Float64Array(L);
+    for (var i = 0; i < L; i++) {
+      var k = i - half;
+      pad[i] = y[k < 0 ? 0 : (k >= n ? n - 1 : k)];
+    }
+    // summed window by window rather than with a running total: a running
+    // total drifts over long flat stretches and that drift is enough to flip
+    // tie ordering in the ordinal-pattern feature
+    var out = new Float64Array(L - w + 1);
+    for (var t = 0; t + w <= L; t++) {
+      var s = 0;
+      for (var j = 0; j < w; j++) s += pad[t + j];
+      out[t] = s / w;
+    }
+    return out.subarray(0, n);
+  }
+
+  /* Ordinal (permutation) entropy. Values that differ only by rounding noise
+     count as ties and are broken by position, so the result does not depend
+     on the order terms happened to be summed in. */
+  function permEntropy(y, m) {
+    var n = y.length - m + 1;
+    if (n < 10) return NaN;
+    var scale = 0;
+    for (var s0 = 0; s0 < y.length; s0++) { var av = Math.abs(y[s0]); if (av > scale) scale = av; }
+    var eps = 1e-9 * (scale > 0 ? scale : 1);
+    var counts = Object.create(null), order = new Array(m);
+    for (var i = 0; i < n; i++) {
+      for (var a = 0; a < m; a++) order[a] = a;
+      (function (base) {
+        order.sort(function (p, q) {
+          var d = y[base + p] - y[base + q];
+          if (Math.abs(d) <= eps) return p - q;
+          return d < 0 ? -1 : 1;
+        });
+      })(i);
+      var key = order.join(",");
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    var h = 0;
+    for (var k in counts) { var p = counts[k] / n; h -= p * Math.log(p); }
+    return h / Math.log(factorial(m));
+  }
+
+  /* ---------- the 16 model features ---------- */
+
+  var FEATURES = ["jitter_p90", "jitter_med", "std_log", "range_dec", "spike_rate",
+    "spec_slope", "band_frac_hi", "hf_ratio", "spec_entropy", "ac1_diff",
+    "turn_rate", "perm_entropy", "wavelet_ratio", "ovf_frac", "ovf_run_max",
+    "exc_height"];
+
+  function maxRun(bad) {
+    var best = 0, cur = 0;
+    for (var i = 0; i < bad.length; i++) { cur = bad[i] ? cur + 1 : 0; if (cur > best) best = cur; }
+    return best;
+  }
+
+  function excHeight(raw) {
+    var ls = logSignal(raw);
+    if (!ls.y || ls.y.length < 8) return NaN;
+    var y = ls.y, nb = Math.max(4, Math.min(12, Math.floor(y.length / 4)));
+    var b = median(y.subarray(0, nb));
+    return percentile(y, 97) - b;
+  }
+
+  /* raw: a window of readings. fullRaw: the whole recording (for exc_height) */
+  function extract(raw, fullRaw) {
+    var f = {};
+    FEATURES.forEach(function (k) { f[k] = NaN; });
+    var nRaw = raw.length;
+    var ls = logSignal(raw);
+    var bad = ls.bad, nBad = 0;
+    for (var i = 0; i < nRaw; i++) nBad += bad[i];
+    f.ovf_frac = nRaw ? nBad / nRaw : NaN;
+    f.ovf_run_max = nRaw ? maxRun(bad) / nRaw : NaN;
+    f.exc_height = excHeight(fullRaw || raw);
+    if (!ls.y || ls.y.length < 24) return f;
+
+    var y = ls.y, n = y.length;
+    f.std_log = std(y);
+    f.range_dec = Math.max.apply(null, Array.from(y)) - Math.min.apply(null, Array.from(y));
+
+    var d = diff(y), ad = absArr(d);
+    f.jitter_med = median(ad);
+    f.jitter_p90 = percentile(ad, 90);
+
+    var medD = median(d);
+    var devs = new Float64Array(d.length);
+    for (var q = 0; q < d.length; q++) devs[q] = Math.abs(d[q] - medD);
+    var madD = median(devs) * 1.4826;
+    if (!(madD > 1e-12)) madD = 1e-12;
+    var c3 = 0;
+    for (var r = 0; r < ad.length; r++) if (ad[r] > 3 * madD) c3++;
+    f.spike_rate = c3 / ad.length;
+
+    var turns = 0;
+    for (var t = 1; t < d.length; t++) if (Math.sign(d[t]) * Math.sign(d[t - 1]) < 0) turns++;
+    f.turn_rate = turns / Math.max(1, d.length - 1);
+
+    // detrend with an edge-padded moving average, window n/6 forced odd
+    var w = Math.max(5, Math.min(31, Math.floor(n / 6)));
+    if (w % 2 === 0) w += 1;
+    var trend = movingAvgEdge(y, w);
+    var res = new Float64Array(n);
+    for (var u = 0; u < n; u++) res[u] = y[u] - trend[u];
+
+    var dm = mean(d), den = 0, num = 0;
+    for (var v = 0; v < d.length; v++) den += (d[v] - dm) * (d[v] - dm);
+    for (var v2 = 1; v2 < d.length; v2++) num += (d[v2] - dm) * (d[v2 - 1] - dm);
+    f.ac1_diff = den > 1e-15 ? num / den : NaN;
+
+    // spectrum of the detrended signal
+    var rm = mean(res), win = hanning(n), sig = new Float64Array(n);
+    for (var s0 = 0; s0 < n; s0++) sig[s0] = (res[s0] - rm) * win[s0];
+    var P = rfftPower(sig).subarray(1);
+    var tot = 0;
+    for (var p0 = 0; p0 < P.length; p0++) tot += P[p0];
+    if (tot > 1e-20 && P.length > 8) {
+      var k = P.length, hiS = 0, bandS = 0, ent = 0;
+      for (var p1 = Math.floor(0.5 * k); p1 < k; p1++) hiS += P[p1] / tot;
+      for (var p2 = Math.floor(0.75 * k); p2 < k; p2++) bandS += P[p2] / tot;
+      for (var p3 = 0; p3 < k; p3++) {
+        var pp = P[p3] / tot;
+        if (pp > 1e-15) ent -= pp * Math.log(pp);
+      }
+      f.hf_ratio = hiS;
+      f.band_frac_hi = bandS;
+      f.spec_entropy = ent / Math.log(k);
+      var lx = [], ly = [];
+      for (var p4 = 0; p4 < k; p4++) if (P[p4] > 1e-20) { lx.push(Math.log(p4 + 1)); ly.push(Math.log(P[p4])); }
+      if (lx.length > 8) f.spec_slope = polyfit1(lx, ly)[0];
+    }
+
+    f.perm_entropy = permEntropy(res, 4);
+    var s3 = movingStd(res, 3), s9 = movingStd(res, 9);
+    f.wavelet_ratio = median(s3) / (median(s9) + 1e-12);
+    return f;
+  }
+
+  /* ---------- segmentation (onset mode) ---------- */
+
+  function activeSpan(raw, minLen) {
+    minLen = minLen || 40;
+    var n = raw.length, ls = logSignal(raw);
+    if (!ls.y || n < minLen) return [0, n];
+    var y = ls.y, bad = ls.bad;
+    var nb = Math.max(4, Math.min(12, Math.floor(y.length / 4)));
+    var b = median(y.subarray(0, nb));
+    var top = percentile(y, 97), amp = top - b;
+    if (amp <= 0.1) return [0, n];
+    var thr = b + 0.30 * amp, first = -1;
+    for (var i = 0; i < n; i++) if (y[i] > thr || bad[i]) { first = i; break; }
+    if (first < 0) return [0, n];
+    return [Math.max(0, first - 2), n];
+  }
+
+  /* ---------- crops used at prediction time ---------- */
+
+  var MIN_CROP = 48;
+
+  function evalCrops(n) {
+    if (n <= MIN_CROP) return [[0, n]];
+    var out = [[0, n]];
+    [0.85, 0.7, 0.6].forEach(function (frac) {
+      var L = Math.max(MIN_CROP, pyRound(n * frac));
+      if (L >= n) return;
+      [0, Math.floor((n - L) / 2), n - L].forEach(function (s) { out.push([s, s + L]); });
+    });
+    var seen = {}, uniq = [];
+    out.forEach(function (ab) {
+      var key = ab[0] + ":" + ab[1];
+      if (!seen[key]) { seen[key] = 1; uniq.push(ab); }
+    });
+    return uniq.slice(0, 9);
+  }
+
+  /* ---------- model ---------- */
+
+  function score(model, fvec) {
+    var z = model.intercept;
+    var contrib = [];
+    for (var i = 0; i < model.features.length; i++) {
+      var v = fvec[i];
+      if (!isFinite(v)) v = model.impute[i];
+      var sv = (v - model.mean[i]) / model.scale[i];
+      var c = sv * model.coef[i];
+      z += c;
+      contrib.push({ name: model.features[i], value: fvec[i], z: sv, contribution: c });
+    }
+    return { p: 1 / (1 + Math.exp(-z)), logit: z, contrib: contrib };
+  }
+
+  function analyse(raw, model) {
+    var span = activeSpan(raw);
+    var seg = raw.slice(span[0], span[1]);
+    if (seg.length < 24) { seg = raw.slice(); span = [0, raw.length]; }
+    var crops = evalCrops(seg.length);
+    var ps = [], first = null, spans = [];
+    crops.forEach(function (ab) {
+      var f = extract(seg.slice(ab[0], ab[1]), raw);
+      var vec = model.features.map(function (k) { return f[k]; });
+      var s = score(model, vec);
+      ps.push(s.p);
+      spans.push([span[0] + ab[0], span[0] + ab[1]]);
+      if (!first) first = { f: f, vec: vec, s: s };
+    });
+    var p = ps.reduce(function (a, b) { return a + b; }, 0) / ps.length;
+    return {
+      p: p, cropProbs: ps, cropSpans: spans, span: span,
+      features: first.f, vector: first.vec, detail: first.s
+    };
+  }
+
+  root.SurfaceEngine = {
+    FEATURES: FEATURES, logSignal: logSignal, extract: extract,
+    activeSpan: activeSpan, evalCrops: evalCrops, analyse: analyse,
+    score: score, median: median, percentile: percentile, std: std,
+    movingAvgEdge: movingAvgEdge, movingStdPad: movingStdPad, diff: diff,
+    OVERFLOW_MIN: OVERFLOW_MIN
+  };
+})(window);
+
+</script>
+<script>
+var MODEL = {"version":1,"features":["jitter_p90","jitter_med","std_log","range_dec","spike_rate","spec_slope","band_frac_hi","hf_ratio","spec_entropy","ac1_diff","turn_rate","perm_entropy","wavelet_ratio","ovf_frac","ovf_run_max","exc_height"],"labels":{"jitter_p90":"Step jump size (p90)","jitter_med":"Step jump size (median)","std_log":"Spread of log resistance","range_dec":"Dynamic range (decades)","spike_rate":"Outlier step rate","spec_slope":"Spectral slope","band_frac_hi":"High-band power fraction","hf_ratio":"High-frequency power fraction","spec_entropy":"Spectral flatness","ac1_diff":"Step autocorrelation (lag 1)","turn_rate":"Turning point density","perm_entropy":"Ordinal complexity","wavelet_ratio":"Fine vs coarse fluctuation","ovf_frac":"Contact-loss fraction","ovf_run_max":"Longest contact loss","exc_height":"Loading excursion (decades)"},"impute":[0.28098547314148603,0.04143101383997516,0.41791715201823987,1.8100192034199578,0.18075736666937253,-0.8067880405451955,0.06740021743486366,0.16212304469751326,0.8199046373200529,-0.1688671842956332,0.5445285366232959,0.9525350656737654,0.4933209615107329,0.005730706075533661,0.005128205128205128,1.2462608990424355],"mean":[0.3002024763154766,0.056255021761367846,0.44227661811377106,1.95755389207481,0.15960161613557844,-0.7437435477085044,0.08888803211170428,0.1967103232138444,0.8164057456567583,-0.18872137410204268,0.5421120016046647,0.9477935650139564,0.5148004236745308,0.031126791699206933,0.02315835752920399,1.3607046401334009],"scale":[0.12322314838565121,0.04237152956544312,0.21826017996108651,0.9469513642308771,0.09260891044862847,0.42195070193254425,0.07419991230638763,0.11709620777825186,0.06487981997378577,0.16261872013727452,0.06575376511066726,0.027015754938691808,0.18772432475134596,0.04196212507947694,0.032127988752258245,0.7643996936313683],"coef":[0.3246745442399287,-0.2216188948605882,-0.5714894669217354,1.70613072759469,-0.0245184595819767,0.3150083643606094,0.7930188562639473,0.24097491249170025,-0.500597482244967,-0.5371588430084718,0.05564178538769317,-0.6858865996409335,0.513338558091088,1.1476412123318576,-0.01899019960890573,1.3604982895209454],"intercept":0.2690433121434713,"reference":{"jitter_p90":{"rough":[0.16725454436878998,0.30360894276583783,0.553177270116375],"smooth":[0.12693163480171274,0.22585508235713236,0.3444355081008762],"lo":0.09303762893187395,"hi":0.6317568160228908},"jitter_med":{"rough":[0.01456195354639278,0.03719241036124754,0.09210409460837723],"smooth":[0.013657014683086378,0.029724269055543484,0.04541582540287763],"lo":0.007431320107559727,"hi":0.10308807839699786},"std_log":{"rough":[0.23297213982867868,0.4169860027715582,0.5454891782790209],"smooth":[0.09545042049872035,0.3218346728910467,0.5740517970277909],"lo":0.06356832141224766,"hi":0.8698174611577594},"range_dec":{"rough":[1.1410329873772547,1.8828196494039964,3.5226225941618576],"smooth":[0.42228030115240744,1.2879837196641528,2.029020772714467],"lo":0.26579711207211915,"hi":4.008457309834839},"spike_rate":{"rough":[0.11712039117219507,0.19382833571315247,0.2670073076044759],"smooth":[0.08615384615384618,0.19617005680776983,0.30684112149532705],"lo":0.01702693742229591,"hi":0.34266768525592056},"spec_slope":{"rough":[-1.096435556330629,-0.6742732158204947,-0.0836167833706652],"smooth":[-1.1344801686617842,-0.8604835802792621,-0.27694354752216155],"lo":-1.3813683416201537,"hi":0.28205534716715447},"band_frac_hi":{"rough":[0.02830145756523467,0.09542579059455379,0.3485518787783974],"smooth":[0.036842517501358966,0.06485780087020683,0.10134839777499426],"lo":0.023199584648750042,"hi":0.4304064003269436},"hf_ratio":{"rough":[0.07855121259178267,0.17212867740476837,0.4607538529968673],"smooth":[0.11279950382873283,0.15967270275633846,0.3027818514112985],"lo":0.06147448945813965,"hi":0.5033360862893104},"spec_entropy":{"rough":[0.7356551283180583,0.830941731032142,0.8865374932987625],"smooth":[0.7687571470765198,0.7978804720048165,0.8701286098865141],"lo":0.6774410917114215,"hi":0.8928101570920185},"ac1_diff":{"rough":[-0.5605227973872078,-0.225926463672374,-0.05122640696654965],"smooth":[-0.3778438383321036,-0.15073562518918474,-0.09173466455885979],"lo":-0.6231172175940716,"hi":0.013554340545740099},"turn_rate":{"rough":[0.4586643078283945,0.5184838923298665,0.6111595941965746],"smooth":[0.4532477926369598,0.5250490486836702,0.5911660458969122],"lo":0.42719280719280717,"hi":0.6447588765235824},"perm_entropy":{"rough":[0.9047467538513732,0.9273796651817718,0.9590721982795805],"smooth":[0.9070646523904622,0.9441530622629146,0.9695492368154541],"lo":0.8768510995319353,"hi":0.9725317252858148},"wavelet_ratio":{"rough":[0.27058589478574185,0.4424061228535001,0.5941919342124987],"smooth":[0.27319770474035726,0.4114239719521058,0.645176824237057],"lo":0.23056319513270354,"hi":0.7582207233476677},"ovf_frac":{"rough":[0.0,0.021660932123866126,0.09623188405797102],"smooth":[0.0,0.0,0.041884816753926704],"lo":0.0,"hi":0.12109322974472807},"ovf_run_max":{"rough":[0.0,0.012462147682273468,0.03469205213391261],"smooth":[0.0,0.0,0.011707418151678407],"lo":0.0,"hi":0.08044516129032257},"exc_height":{"rough":[0.5823120091452978,1.272788672511704,2.8711580601718953],"smooth":[0.24368290709883222,1.077553780911931,1.3107915828383463],"lo":0.10813260474094566,"hi":2.8711580601718953}},"training":{"n_recordings":18,"n_rough":8,"n_smooth":10,"n_rows":1152,"n_real_rows":432,"n_synth":120,"loso_accuracy":0.8888888888888888,"loso_accuracy_real_only":0.8333333333333334,"loso_detail":{"S1_ROUGH":{"p":0.5085742206926578,"truth":1},"S1_SMOOTH":{"p":0.6124600298776119,"truth":0},"S2_ROUGH":{"p":0.7916931479847266,"truth":1},"S2_SMOOTH":{"p":0.17090780691340637,"truth":0},"S3_ROUGH":{"p":0.7595814770256077,"truth":1},"S3_SMOOTH":{"p":0.11951395082993616,"truth":0},"S4_SMOOTH":{"p":0.3160807033027573,"truth":0},"S5_ROUGH":{"p":0.3994810166467755,"truth":1},"S5_SMOOTH":{"p":0.17283151549429687,"truth":0},"S6_SMOOTH":{"p":0.3812422649640248,"truth":0},"S7_ROUGH":{"p":0.7735970263365592,"truth":1},"S7_SMOOTH":{"p":0.07815487653367906,"truth":0},"S8_ROUGH":{"p":0.5236651963556864,"truth":1},"S8_SMOOTH":{"p":0.10464624827759633,"truth":0},"T10Rough":{"p":0.9935661770738721,"truth":1},"T10Smooth":{"p":0.10021567681865948,"truth":0},"T5Rough":{"p":0.845820729478474,"truth":1},"T5Smooth":{"p":0.049462448236200995,"truth":0}},"dropped":["S6_ROUGH","T8Rough","T8Smooth"],"max_overflow":0.25}};
+var SAMPLES = [{"file":"S3_ROUGH.csv","title":"Rough, run S3","note":"measured 8 Oct, ~1e8 ohm","csv":"Start date:,10/08/2026,Start time:,09:41:51.490\nReading #,Reading\n1,+1.44843492E+08\n2,+1.35252135E+08\n3,+1.45904907E+08\n4,+1.41323309E+08\n5,+1.25989936E+08\n6,+1.19210314E+08\n7,+1.10359026E+08\n8,+1.37031486E+08\n9,+1.57691826E+08\n10,+1.98232550E+08\n11,+1.67006631E+08\n12,+1.85498711E+08\n13,+1.86663049E+08\n14,+4.61998675E+08\n15,+4.04654204E+08\n16,+4.71861636E+08\n17,+9.71732197E+08\n18,+9.90000000E+37\n19,+5.66730434E+08\n20,+5.14619422E+08\n21,+5.64774247E+08\n22,+9.90000000E+37\n23,+9.90000000E+37\n24,+1.12569842E+09\n25,+9.24421705E+08\n26,+7.22460556E+08\n27,+7.84374790E+08\n28,+7.36214488E+08\n29,+7.65327766E+08\n30,+7.38933953E+08\n31,+6.83586236E+08\n32,+7.11120917E+08\n33,+7.53892720E+08\n34,+8.21260364E+08\n35,+1.02880825E+09\n36,+5.85146293E+08\n37,+4.57858152E+08\n38,+4.01081148E+08\n39,+2.89231498E+08\n40,+4.80033722E+08\n41,+1.02508477E+09\n42,+5.75053946E+08\n43,+9.90000000E+37\n44,+4.52944612E+08\n45,+4.37886545E+08\n46,+4.12363778E+08\n47,+3.16737738E+08\n48,+2.72153188E+08\n49,+2.70346995E+08\n50,+2.35842632E+08\n51,+2.01234568E+08\n52,+2.39871334E+08\n53,+1.69418493E+08\n54,+1.56203078E+08\n55,+1.68572551E+08\n56,+1.79026630E+08\n57,+2.37340868E+08\n58,+9.90000000E+37\n59,+9.90000000E+37\n60,+8.06679013E+08\n61,+3.64267770E+08\n62,+2.65464873E+08\n63,+3.10533683E+08\n64,+5.37889760E+08\n65,+9.90000000E+37\n66,+9.90000000E+37\n67,+7.71822662E+08\n68,+5.08141090E+08\n69,+4.50965418E+08\n70,+3.50893551E+08\n71,+3.17416218E+08\n72,+2.89735547E+08\n73,+2.45448239E+08\n74,+6.58126921E+08\n75,+3.72693119E+08\n76,+2.93286614E+08\n77,+3.45541847E+08\n78,+9.90000000E+37\n79,+4.48502658E+08\n80,+8.55219054E+08\n81,+2.82248128E+08\n82,+2.91346023E+08\n83,+6.43216265E+08\n84,+2.13885076E+08\n85,+3.02464896E+08\n86,+2.77264527E+08\n87,+3.63300612E+08\n88,+4.78655137E+08\n89,+3.26450460E+08\n90,+3.07429701E+08\n91,+1.73065069E+08\n92,+5.41600348E+08\n93,+2.36028552E+08\n94,+9.90000000E+37\n95,+2.53925107E+08\n96,+9.90000000E+37\n97,+2.35866138E+08\n98,+6.34119951E+08\n99,+2.39613664E+08\n100,+1.92387952E+08\n101,+1.73333387E+08\n102,+1.58101291E+08\n103,+1.23613411E+08\n104,+1.06698806E+08\n105,+6.72867490E+07\n106,+2.54873280E+08\n107,+8.37690547E+07\n108,+2.71200413E+08\n109,+7.16489899E+08\n110,+7.95074326E+07\n111,+3.38789042E+08\n112,+1.82468610E+08\n113,+1.44319777E+08\n114,+4.47614701E+08\n115,+3.52402398E+08\n116,+6.99565103E+07\n117,+8.82428985E+08\n118,+2.17274084E+08\n119,+5.61010601E+08\n120,+2.74966207E+08\n121,+4.71580974E+08\n122,+1.70512407E+08\n123,+1.90513021E+08\n124,+1.04939020E+08\n125,+9.33672679E+07\n126,+1.10736967E+08\n127,+1.00775455E+08\n128,+7.64040961E+07\n129,+1.39909852E+08\n130,+1.05130509E+08\n131,+1.11366694E+08\n132,+7.16264881E+07\n133,+7.76771979E+07\n134,+6.03495552E+07\n135,+4.84402336E+07\n136,+5.16735382E+07\n137,+5.43627597E+07\n138,+7.31009975E+07\n139,+6.07543734E+07\n140,+6.81845270E+07\n141,+6.97194594E+07\n142,+7.14645728E+07\n143,+7.42285873E+07\n144,+7.44206442E+07\n145,+7.28533497E+07\n146,+7.82925707E+07\n147,+7.78410089E+07\n148,+7.29360514E+07\n149,+7.23000854E+07\n150,+7.00033916E+07\n151,+7.26082195E+07\n152,+6.85801074E+07\n153,+7.04584233E+07\n154,+4.85473398E+07\n155,+3.70042969E+07\n156,+3.38086315E+07\n157,+4.12066363E+07\n158,+6.15360719E+07\n159,+6.44414518E+07\n160,+6.92018181E+07\n161,+6.43104981E+07\n162,+6.54236965E+07\n163,+6.73566017E+07\n164,+6.87728236E+07\n165,+6.93296328E+07\n166,+6.75944377E+07\n167,+7.04597675E+07\n168,+7.02773339E+07\n169,+7.12863501E+07\n170,+7.50459697E+07\n171,+7.53628839E+07\n172,+7.13298086E+07\n173,+6.80699131E+07\n174,+6.78759073E+07\n175,+6.78666009E+07\n176,+6.77839256E+07\n177,+6.74955684E+07\n178,+6.96022772E+07\n179,+6.46315731E+07\n180,+6.61082345E+07\n181,+6.51740439E+07\n182,+6.71022056E+07\n183,+6.74664104E+07\n184,+6.89776125E+07\n185,+6.48461045E+07\n186,+6.29449800E+07\n187,+5.93735676E+07\n188,+6.02635946E+07\n189,+5.56098739E+07\n190,+5.51509690E+07\n191,+5.59403305E+07\n192,+6.00956849E+07\n193,+6.58947013E+07\n194,+5.10455634E+07\n195,+6.73555314E+07\n196,+6.35051636E+07\n197,+5.70617226E+07\n198,+5.28797775E+07\n199,+4.55959165E+07\n200,+4.20174493E+07\n201,+4.04827455E+07\n202,+3.76412901E+07\n203,+3.89471063E+07\n204,+4.27138711E+07\n205,+3.99638707E+07\n206,+4.18993654E+07\n207,+4.07743283E+07\n208,+3.88121852E+07\n209,+3.76313629E+07\n210,+3.60221252E+07\n211,+3.56134741E+07\n212,+3.40135556E+07\n213,+3.13918161E+07\n214,+2.98379474E+07\n215,+2.91122157E+07\n216,+2.92863424E+07\n217,+2.84975359E+07\n218,+2.84251633E+07\n219,+2.86152594E+07\n220,+2.92633915E+07\n221,+2.91178615E+07\n222,+2.91769942E+07\n223,+2.86916236E+07\n224,+2.89886981E+07\n225,+2.97341436E+07\n226,+2.86421555E+07\n227,+2.89444225E+07\n228,+2.97894587E+07\n229,+3.02205797E+07\n230,+2.97513783E+07\n231,+3.02699593E+07\n232,+3.19971912E+07\n233,+3.36306567E+07\n234,+3.27009358E+07\n235,+2.87972280E+07\n236,+2.90128858E+07\n237,+2.90129091E+07\n238,+3.00247538E+07\n239,+3.08119150E+07\n240,+3.28020379E+07\n241,+3.41185614E+07\n242,+3.01066005E+07\n243,+2.96118651E+07\n244,+2.89037875E+07\n245,+2.93113637E+07\n246,+2.96744212E+07\n247,+3.01784233E+07\n248,+3.02181987E+07\n249,+3.44547798E+07\n250,+3.90584758E+07\n251,+3.32725017E+07\n252,+3.28948606E+07\n253,+3.21537923E+07\n254,+3.04554965E+07\n255,+2.88452362E+07\n256,+2.77325062E+07\n257,+2.76595648E+07\n258,+2.81860630E+07\n259,+2.61408605E+07\n260,+2.64774054E+07\n261,+2.56806307E+07\n262,+2.78851975E+07\n263,+2.85770890E+07\n264,+2.73597967E+07\n265,+2.73661474E+07\n266,+2.75051152E+07\n267,+2.92163518E+07\n268,+2.94165048E+07\n269,+2.80654203E+07\n270,+2.86564418E+07\n271,+2.95670133E+07\n272,+3.06025757E+07\n273,+3.00822067E+07\n274,+2.93896120E+07\n275,+2.97195415E+07\n"},{"file":"S3_SMOOTH.csv","title":"Smooth, run S3","note":"measured 9 Oct, ~1e8 ohm","csv":"Start date:,10/09/2026,Start time:,09:47:11.120\nReading #,Reading\n1,+5.02770369E+08\n2,+4.59740157E+08\n3,+4.09644964E+08\n4,+3.67308569E+08\n5,+3.43533601E+08\n6,+3.53386620E+08\n7,+3.74589908E+08\n8,+3.71362316E+08\n9,+3.66175358E+08\n10,+3.00454744E+08\n11,+3.12929513E+08\n12,+9.31688102E+08\n13,+9.90000000E+37\n14,+1.05309122E+09\n15,+1.03865301E+09\n16,+8.66744551E+08\n17,+8.38843788E+08\n18,+7.61926737E+08\n19,+8.48146723E+08\n20,+8.58305586E+08\n21,+8.83565860E+08\n22,+9.18882098E+08\n23,+9.90000000E+37\n24,+9.90000000E+37\n25,+9.90000000E+37\n26,+1.06434892E+09\n27,+1.01024779E+09\n28,+8.68449875E+08\n29,+7.32677000E+08\n30,+7.01640084E+08\n31,+6.70507044E+08\n32,+6.53439272E+08\n33,+6.24560957E+08\n34,+6.06402600E+08\n35,+5.95673850E+08\n36,+5.86721999E+08\n37,+5.66289014E+08\n38,+4.85288459E+08\n39,+4.57964248E+08\n40,+9.80428164E+08\n41,+8.19236953E+08\n42,+8.60880993E+08\n43,+6.86595127E+08\n44,+6.31487574E+08\n45,+9.90000000E+37\n46,+9.90000000E+37\n47,+1.04319000E+09\n48,+8.83811266E+08\n49,+8.38278347E+08\n50,+9.67317765E+08\n51,+4.75386044E+08\n52,+7.50460079E+08\n53,+4.61504746E+08\n54,+3.86682696E+08\n55,+2.70659177E+08\n56,+2.21027658E+08\n57,+2.10184634E+08\n58,+3.19686778E+08\n59,+3.98406067E+08\n60,+6.97827140E+08\n61,+5.17449483E+08\n62,+3.59657487E+08\n63,+4.21087652E+08\n64,+4.19382839E+08\n65,+6.03837786E+08\n66,+4.73493342E+08\n67,+2.22896146E+08\n68,+3.68246150E+08\n69,+9.90000000E+37\n70,+9.90000000E+37\n71,+6.98128233E+08\n72,+6.83398890E+08\n73,+1.02363427E+09\n74,+3.62023839E+08\n75,+3.30959739E+08\n76,+2.60634395E+08\n77,+5.08710480E+08\n78,+3.93890812E+08\n79,+3.73615298E+08\n80,+2.90238573E+08\n81,+3.98648452E+08\n82,+3.47955916E+08\n83,+2.15076262E+08\n84,+2.35452285E+08\n85,+6.41779088E+08\n86,+7.86477577E+08\n87,+7.41797163E+08\n88,+3.32126994E+08\n89,+4.59669794E+08\n90,+3.56695433E+08\n91,+7.77812669E+08\n92,+4.03185703E+08\n93,+4.94792852E+08\n94,+6.82791150E+08\n95,+3.90963130E+08\n96,+3.16639349E+08\n97,+3.85475757E+08\n98,+7.54509935E+08\n99,+6.93283839E+08\n100,+2.53313035E+08\n101,+3.67361393E+08\n102,+6.29020351E+08\n103,+4.97100101E+08\n104,+2.42000134E+08\n105,+6.36870285E+08\n106,+9.71587306E+08\n107,+4.87436565E+08\n108,+3.46971017E+08\n109,+3.71226067E+08\n110,+8.69500981E+08\n111,+4.52378897E+08\n112,+2.36950948E+08\n113,+3.55734770E+08\n114,+5.95184100E+08\n115,+8.95747190E+08\n116,+7.47131395E+08\n117,+3.51077447E+08\n118,+4.81816516E+08\n119,+5.88462763E+08\n120,+3.48508798E+08\n121,+5.93836650E+08\n122,+8.25150027E+08\n123,+8.88208261E+08\n124,+9.67155056E+08\n125,+6.85228347E+08\n126,+5.33486806E+08\n127,+3.99106603E+08\n128,+2.81552518E+08\n129,+2.66884724E+08\n130,+1.84583097E+08\n131,+1.63775407E+08\n132,+2.05468178E+08\n133,+8.17531369E+07\n134,+7.61260556E+07\n135,+7.80804431E+07\n136,+7.23953473E+07\n137,+7.24198177E+07\n138,+6.56637172E+07\n139,+6.41530803E+07\n140,+6.07049449E+07\n141,+5.78649698E+07\n142,+5.78402042E+07\n143,+5.62611403E+07\n144,+5.96834307E+07\n145,+5.88640563E+07\n146,+5.74542244E+07\n147,+5.38198321E+07\n148,+5.84801581E+07\n149,+5.70380519E+07\n150,+6.27405463E+07\n151,+5.83925383E+07\n152,+5.00099319E+07\n153,+4.64997379E+07\n154,+4.54827688E+07\n155,+4.60741727E+07\n156,+4.66346016E+07\n157,+4.28618647E+07\n158,+4.10868640E+07\n159,+4.15023290E+07\n160,+4.26063663E+07\n161,+3.93701487E+07\n162,+3.84099101E+07\n163,+4.09258216E+07\n164,+3.94568263E+07\n165,+3.88107126E+07\n166,+3.72550883E+07\n167,+3.64108674E+07\n168,+3.52833896E+07\n169,+3.46813279E+07\n170,+3.30569884E+07\n171,+3.16976076E+07\n172,+3.18947156E+07\n173,+3.12254142E+07\n174,+3.05809955E+07\n175,+3.09759892E+07\n176,+3.10362873E+07\n177,+3.00398236E+07\n178,+3.06185911E+07\n179,+3.03251076E+07\n180,+3.04023767E+07\n181,+3.09208419E+07\n182,+3.08375701E+07\n183,+3.08947572E+07\n184,+3.03111919E+07\n185,+3.02479550E+07\n186,+3.00751389E+07\n187,+3.05779835E+07\n188,+3.10150933E+07\n189,+3.06567649E+07\n190,+3.08310874E+07\n191,+3.11274861E+07\n192,+3.02643568E+07\n193,+2.94381318E+07\n194,+2.99451775E+07\n195,+2.89975018E+07\n196,+2.94460114E+07\n197,+2.94203750E+07\n198,+2.95761942E+07\n199,+2.99342371E+07\n200,+2.98590355E+07\n201,+3.00356801E+07\n202,+3.08936685E+07\n203,+3.06198595E+07\n204,+3.05611077E+07\n205,+3.01387758E+07\n206,+2.99473092E+07\n207,+3.01893995E+07\n208,+2.94385315E+07\n209,+2.93323934E+07\n210,+2.92705072E+07\n211,+2.94389046E+07\n212,+2.92921438E+07\n213,+2.97240915E+07\n214,+2.95126580E+07\n215,+2.97259605E+07\n216,+3.03571214E+07\n217,+3.02622431E+07\n218,+2.94293736E+07\n219,+2.96507526E+07\n220,+2.92428509E+07\n221,+2.89576279E+07\n222,+2.82265471E+07\n223,+2.94215680E+07\n224,+2.96163384E+07\n225,+2.94152617E+07\n226,+2.84869820E+07\n227,+2.83146220E+07\n228,+2.79883441E+07\n229,+2.79115912E+07\n230,+2.79476762E+07\n231,+2.82352101E+07\n232,+2.83359616E+07\n233,+2.87481215E+07\n234,+2.88876950E+07\n235,+2.85957127E+07\n236,+2.81448279E+07\n237,+2.84702266E+07\n238,+2.80961242E+07\n239,+2.83479847E+07\n240,+2.82692526E+07\n241,+2.87765222E+07\n242,+2.89186404E+07\n243,+2.86633251E+07\n244,+2.84415278E+07\n245,+2.80203633E+07\n246,+2.82661195E+07\n247,+2.82297334E+07\n248,+2.87299170E+07\n249,+2.89305222E+07\n250,+2.89971415E+07\n251,+2.87078126E+07\n252,+2.82533992E+07\n253,+2.89456699E+07\n254,+2.87199815E+07\n"},{"file":"T5Rough.csv","title":"Rough, run T5","note":"measured 9 Aug, ~1e5 ohm","csv":"Start date:,09/08/2026,Start time:,10:21:44.710\nReading #,Reading\n1,+4.84013034E+04\n2,+5.61026952E+04\n3,+7.32615434E+04\n4,+6.14266563E+04\n5,+6.87509625E+04\n6,+6.66428974E+04\n7,+7.22503582E+04\n8,+7.50598330E+04\n9,+7.43701705E+04\n10,+7.86064426E+04\n11,+7.06196200E+04\n12,+6.89484147E+04\n13,+6.96812245E+04\n14,+8.18976325E+04\n15,+7.79547592E+04\n16,+8.38984729E+04\n17,+7.86922417E+04\n18,+8.20967907E+04\n19,+8.39627917E+04\n20,+9.53765920E+04\n21,+1.59499555E+05\n22,+1.24591615E+05\n23,+1.08374535E+05\n24,+1.16476662E+05\n25,+8.83819378E+04\n26,+9.99451968E+04\n27,+9.36545780E+04\n28,+8.89531879E+04\n29,+1.09249050E+05\n30,+1.12369453E+05\n31,+1.04270828E+05\n32,+1.01678646E+05\n33,+1.06742336E+05\n34,+1.20094185E+05\n35,+1.26675925E+05\n36,+1.28584891E+05\n37,+1.55754896E+05\n38,+1.76190544E+05\n39,+1.83111808E+05\n40,+1.40591430E+05\n41,+1.13009412E+05\n42,+1.29764370E+05\n43,+1.06561171E+05\n44,+1.17722319E+05\n45,+1.23773218E+05\n46,+1.73195367E+05\n47,+1.19710101E+05\n48,+1.35262409E+05\n49,+1.18332470E+05\n50,+1.24735257E+05\n51,+1.20290451E+05\n52,+1.32632162E+05\n53,+1.35232158E+05\n54,+1.41272947E+05\n55,+1.31454178E+05\n56,+1.20201582E+05\n57,+1.38131725E+05\n58,+1.24365877E+05\n59,+1.27808927E+05\n60,+1.22914445E+05\n61,+1.29061156E+05\n62,+1.19067254E+05\n63,+1.34283834E+05\n64,+1.10193629E+05\n65,+1.07432344E+05\n66,+1.24398543E+05\n67,+1.34010163E+05\n68,+1.12111149E+05\n69,+1.30462697E+05\n70,+1.28607318E+05\n71,+1.21339079E+05\n72,+1.29146368E+05\n73,+1.21899981E+05\n74,+1.09994029E+05\n75,+1.61550892E+05\n76,+1.38182967E+05\n77,+9.90000000E+37\n78,+9.90000000E+37\n79,+9.90000000E+37\n80,+2.23669449E+08\n81,+2.32613895E+06\n82,+3.08410435E+06\n83,+3.52303679E+05\n84,+1.04746045E+06\n85,+1.04196646E+06\n86,+4.90272736E+05\n87,+1.03156673E+06\n88,+5.52590124E+05\n89,+5.28993729E+05\n90,+6.71404231E+04\n91,+1.45664111E+05\n92,+1.42976086E+05\n93,+1.56621454E+05\n94,+1.44906859E+05\n95,+1.63562914E+05\n96,+1.59842269E+05\n97,+1.63283938E+05\n98,+1.66544240E+05\n99,+1.52031936E+05\n100,+1.79888652E+05\n101,+1.97689576E+05\n102,+1.55578445E+05\n103,+1.66725911E+05\n104,+1.89359231E+05\n105,+1.93250477E+05\n106,+1.89032697E+05\n107,+1.80368459E+05\n108,+1.82960737E+05\n109,+1.76367914E+05\n110,+2.11717755E+05\n111,+1.70059644E+05\n112,+1.71907268E+05\n113,+1.61093490E+05\n114,+1.92752584E+05\n115,+1.98525695E+05\n116,+1.53072051E+05\n117,+1.57801383E+05\n118,+1.78719072E+05\n119,+2.25991603E+05\n120,+1.69781345E+05\n121,+1.62494493E+05\n122,+1.43823195E+05\n123,+1.55013686E+05\n124,+1.46004653E+05\n125,+1.42557976E+05\n126,+1.99292567E+05\n127,+1.68732651E+05\n128,+1.60942686E+05\n129,+1.37265321E+05\n130,+1.57836093E+05\n131,+1.95384396E+05\n132,+1.68211540E+05\n133,+1.99500838E+05\n134,+2.20907602E+05\n135,+2.23198238E+05\n136,+2.19688743E+05\n137,+2.39730533E+05\n138,+2.00841304E+05\n139,+1.89751389E+05\n140,+1.64906455E+05\n141,+1.63072711E+05\n142,+1.33615521E+05\n143,+1.36168853E+05\n144,+1.42917458E+05\n145,+1.25686133E+05\n146,+1.23509430E+05\n147,+1.24401503E+05\n148,+1.21516175E+05\n149,+1.25088306E+05\n150,+1.18264475E+05\n151,+1.21498441E+05\n152,+1.17796153E+05\n153,+1.23202507E+05\n154,+1.16693388E+05\n155,+1.14260758E+05\n156,+1.16640087E+05\n157,+1.16832217E+05\n158,+1.14827920E+05\n159,+1.14132857E+05\n160,+1.12294978E+05\n161,+1.12163992E+05\n162,+1.15310800E+05\n163,+1.11654370E+05\n164,+1.11239330E+05\n165,+1.13124481E+05\n166,+1.14873342E+05\n167,+1.17551399E+05\n168,+1.15730932E+05\n169,+1.23383757E+05\n170,+1.23288100E+05\n171,+1.10521708E+05\n172,+1.17432876E+05\n173,+1.20436691E+05\n174,+9.69477830E+04\n175,+9.76012940E+04\n176,+1.03502045E+05\n177,+1.05584244E+05\n178,+1.04186491E+05\n179,+9.91180783E+04\n180,+9.04716786E+04\n181,+8.89694840E+04\n182,+8.37488242E+04\n183,+8.36153475E+04\n184,+8.18693827E+04\n185,+8.24489074E+04\n186,+8.24488642E+04\n187,+8.48112832E+04\n188,+8.58398970E+04\n189,+8.59163637E+04\n190,+8.51814466E+04\n191,+8.56858936E+04\n192,+8.45369722E+04\n193,+8.55185019E+04\n194,+8.70691262E+04\n195,+8.71374228E+04\n196,+8.59282964E+04\n197,+8.53211310E+04\n198,+8.68592819E+04\n199,+8.74569699E+04\n200,+8.65496321E+04\n201,+8.62569397E+04\n202,+8.56222244E+04\n203,+8.53689535E+04\n204,+8.96842458E+04\n205,+8.22667080E+04\n206,+8.32103817E+04\n207,+8.46358701E+04\n208,+8.48300213E+04\n"},{"file":"T5Smooth.csv","title":"Smooth, run T5","note":"measured 9 Aug, ~1e5 ohm","csv":"Start date:,09/08/2026,Start time:,10:19:25.860\nReading #,Reading\n1,+4.48519200E+04\n2,+4.54723334E+04\n3,+4.42452239E+04\n4,+5.42682665E+04\n5,+7.72348601E+04\n6,+7.26027406E+04\n7,+6.39077992E+04\n8,+6.72850438E+04\n9,+5.49753012E+04\n10,+5.95251397E+04\n11,+6.87268280E+04\n12,+5.67114680E+04\n13,+6.24545423E+04\n14,+7.07509018E+04\n15,+6.78527807E+04\n16,+5.82592478E+04\n17,+6.09849480E+04\n18,+5.93188842E+04\n19,+6.64232923E+04\n20,+5.91187205E+04\n21,+4.91742576E+04\n22,+5.52806211E+04\n23,+6.15316537E+04\n24,+6.58899724E+04\n25,+5.91743493E+04\n26,+5.38605836E+04\n27,+7.83179442E+04\n28,+6.83880689E+04\n29,+5.87493833E+04\n30,+6.75412102E+04\n31,+5.00621285E+04\n32,+7.47796228E+04\n33,+4.75859791E+04\n34,+7.22270027E+04\n35,+5.77554683E+04\n36,+5.23098404E+04\n37,+7.13716353E+04\n38,+4.78582559E+04\n39,+6.21133465E+04\n40,+5.78355355E+04\n41,+6.74406208E+04\n42,+5.35447251E+04\n43,+4.88679878E+04\n44,+6.47571502E+04\n45,+5.45444156E+04\n46,+6.02195380E+04\n47,+5.75789213E+04\n48,+6.25248661E+04\n49,+6.19003266E+04\n50,+4.96812371E+04\n51,+6.16727462E+04\n52,+5.59414312E+04\n53,+4.96127028E+04\n54,+5.99623454E+04\n55,+6.27789139E+04\n56,+6.22107000E+04\n57,+4.82749349E+04\n58,+5.85358428E+04\n59,+6.89045360E+04\n60,+5.34306081E+04\n61,+5.82222602E+04\n62,+6.33730508E+04\n63,+6.39274999E+04\n64,+4.86027625E+04\n65,+6.66610370E+04\n66,+7.12255742E+04\n67,+5.04664670E+04\n68,+4.32641647E+04\n69,+6.53440907E+04\n70,+5.82645067E+04\n71,+4.79606242E+04\n72,+6.42262000E+04\n73,+6.06711361E+04\n74,+4.55044834E+04\n75,+6.67583710E+04\n76,+6.24053898E+04\n77,+4.67938273E+04\n78,+6.47272288E+04\n79,+6.52580431E+04\n80,+4.76847673E+04\n81,+4.99936264E+04\n82,+7.05622249E+04\n83,+6.19730227E+04\n84,+4.45380366E+04\n85,+6.01926551E+04\n86,+5.96526379E+04\n87,+6.29612844E+04\n88,+5.36786335E+04\n89,+5.69108088E+04\n90,+5.88267619E+04\n91,+6.10193552E+04\n92,+6.66632687E+04\n93,+5.68134008E+04\n94,+7.61465887E+04\n95,+7.48091696E+04\n96,+6.67165094E+04\n97,+4.93239472E+04\n98,+5.75989652E+04\n99,+6.17143559E+04\n100,+5.46193283E+04\n101,+6.48256286E+04\n102,+6.46312244E+04\n103,+4.97607595E+04\n104,+5.95723813E+04\n105,+6.25007668E+04\n106,+5.10154847E+04\n107,+6.05848435E+04\n108,+6.84510200E+04\n109,+5.60074510E+04\n110,+6.04094574E+04\n111,+6.32192849E+04\n112,+6.14006544E+04\n113,+4.99751043E+04\n114,+5.07902950E+04\n115,+5.58051318E+04\n116,+6.39079167E+04\n117,+6.02492556E+04\n118,+7.68306003E+04\n119,+5.97165991E+04\n120,+4.49446660E+04\n121,+4.61657998E+04\n122,+5.94404110E+04\n123,+6.34559906E+04\n124,+5.56146125E+04\n125,+6.68434016E+04\n126,+6.44832481E+04\n127,+7.18390287E+04\n128,+6.84703112E+04\n129,+6.75348307E+04\n130,+5.54533960E+04\n131,+6.58922502E+04\n132,+6.46673409E+04\n133,+6.13745799E+04\n134,+5.39397608E+04\n135,+5.48697961E+04\n136,+6.79846844E+04\n137,+4.59860673E+04\n138,+4.74499543E+04\n139,+6.07458176E+04\n140,+5.77842560E+04\n141,+5.11268753E+04\n142,+5.45880289E+04\n143,+7.03348122E+04\n144,+6.42832821E+04\n145,+5.47037229E+04\n146,+6.70240688E+04\n147,+6.71501097E+04\n148,+6.61616764E+04\n149,+5.53692499E+04\n150,+6.87949327E+04\n151,+6.51616891E+04\n152,+6.94557045E+04\n153,+6.09554341E+04\n154,+6.12878802E+04\n155,+6.98026423E+04\n156,+6.84201355E+04\n157,+6.23133097E+04\n158,+5.01521788E+04\n159,+6.19987148E+04\n160,+6.74043359E+04\n161,+7.48453545E+04\n162,+7.45145624E+04\n163,+7.54547779E+04\n164,+6.96909046E+04\n165,+6.81149281E+04\n166,+6.72696564E+04\n167,+6.31059088E+04\n168,+5.68485784E+04\n169,+6.07145448E+04\n170,+6.02670509E+04\n171,+6.00141445E+04\n172,+5.85313009E+04\n173,+6.10478574E+04\n174,+6.42300632E+04\n175,+6.15167199E+04\n176,+6.07463709E+04\n177,+5.99214982E+04\n178,+6.01184781E+04\n179,+5.98805009E+04\n180,+5.82966948E+04\n181,+5.95094504E+04\n182,+6.02259746E+04\n183,+5.94927381E+04\n184,+5.87636256E+04\n185,+5.92728924E+04\n186,+5.72039209E+04\n187,+4.94257514E+04\n188,+4.94352825E+04\n189,+5.13364240E+04\n190,+5.22773112E+04\n191,+4.98515174E+04\n192,+5.07820198E+04\n193,+4.92672906E+04\n194,+4.76313027E+04\n195,+4.34740751E+04\n196,+5.00097865E+04\n197,+4.55126141E+04\n198,+4.53347757E+04\n199,+4.57327086E+04\n200,+4.49541786E+04\n201,+4.42236341E+04\n202,+4.80864969E+04\n203,+4.75308803E+04\n204,+4.67609780E+04\n205,+4.47545095E+04\n206,+4.25124776E+04\n207,+4.50940345E+04\n208,+4.35579864E+04\n209,+4.33624770E+04\n210,+4.17346087E+04\n211,+4.15652594E+04\n212,+4.21447697E+04\n213,+4.47653233E+04\n214,+4.56623742E+04\n215,+4.46090444E+04\n216,+4.65669185E+04\n217,+4.45920012E+04\n218,+4.32807068E+04\n219,+4.26533781E+04\n220,+4.24069965E+04\n221,+4.17653077E+04\n222,+4.07563594E+04\n223,+4.18667409E+04\n224,+4.06594656E+04\n225,+4.03440180E+04\n226,+4.06475384E+04\n227,+4.10363035E+04\n228,+4.02469508E+04\n229,+3.94535820E+04\n230,+3.84523328E+04\n231,+4.25276793E+04\n232,+4.57579644E+04\n233,+4.13360234E+04\n234,+4.09226824E+04\n235,+4.12529162E+04\n236,+4.08394972E+04\n237,+3.71094134E+04\n238,+4.04446932E+04\n239,+4.15850780E+04\n240,+4.11818514E+04\n241,+3.95837775E+04\n242,+3.95043131E+04\n243,+3.97386733E+04\n244,+3.97283524E+04\n245,+4.42256310E+04\n246,+4.80695439E+04\n247,+4.62263215E+04\n248,+4.48909055E+04\n249,+4.31012204E+04\n250,+4.21940752E+04\n251,+4.34150318E+04\n252,+4.29553604E+04\n253,+4.31877332E+04\n254,+4.27095960E+04\n255,+4.25115916E+04\n256,+4.03829247E+04\n257,+4.11467292E+04\n258,+4.15045825E+04\n259,+4.09047578E+04\n260,+4.23204076E+04\n261,+3.60558123E+04\n262,+3.67659660E+04\n263,+3.81185750E+04\n264,+4.00625225E+04\n265,+4.06766804E+04\n266,+4.16212310E+04\n"}];
+</script>
+<script>
+/* Page logic: parse, analyse, draw. MODEL and SAMPLES are injected at build. */
+(function () {
+  "use strict";
+  var E = window.SurfaceEngine;
+  var $ = function (id) { return document.getElementById(id); };
+  var files = [];      // {name, raw, result, quality}
+  var active = -1;
+
+  /* ---------------- parsing ---------------- */
+
+  function parseCsv(text, name) {
+    var lines = text.split(/\r?\n/);
+    var vals = [], meta = { date: null, time: null, skipped: 0, nonNumeric: 0 };
+    var sawHeader = false;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line.trim()) continue;
+      var c = line.split(/[,;\t]/);
+      var c0 = (c[0] || "").trim();
+      if (/^start\s*date/i.test(c0)) {
+        meta.date = (c[1] || "").trim();
+        if (c.length > 3) meta.time = (c[3] || "").trim();
+        continue;
+      }
+      if (/^reading/i.test(c0)) { sawHeader = true; continue; }
+      var idx = Number(c0);
+      var vraw, valCol = 1;
+      if (!isFinite(idx) || c0 === "") {
+        meta.skipped++;
+        continue;
+      }
+      if (c.length < 2) { valCol = 0; }
+      vraw = String(c[valCol] === undefined ? "" : c[valCol]).trim();
+      if (vraw === "") { meta.skipped++; continue; }
+      var v = Number(vraw);
+      if (!isFinite(v)) { meta.nonNumeric++; continue; }
+      vals.push(v >= E.OVERFLOW_MIN || v <= 0 ? NaN : v);
+    }
+    // a single-column file: the one number is the reading, not an index
+    if (!vals.length) {
+      for (var j = 0; j < lines.length; j++) {
+        var t = lines[j].trim();
+        if (!t) continue;
+        var n2 = Number(t);
+        if (isFinite(n2)) vals.push(n2 >= E.OVERFLOW_MIN || n2 <= 0 ? NaN : n2);
+      }
+    }
+    meta.sawHeader = sawHeader;
+    meta.name = name;
+    return { values: vals, meta: meta };
+  }
+
+  /* ---------------- quality ---------------- */
+
+  function quality(raw, meta) {
+    var n = raw.length, nBad = 0;
+    for (var i = 0; i < n; i++) if (!isFinite(raw[i])) nBad++;
+    var good = [];
+    for (var j = 0; j < n; j++) if (isFinite(raw[j])) good.push(raw[j]);
+    var checks = [], worst = "ok";
+    function add(level, text, detail) {
+      checks.push({ level: level, text: text, detail: detail });
+      if (level === "bad" || (level === "warn" && worst === "ok")) worst = level;
+    }
+    if (n === 0) { add("bad", "No readings found", "Nothing in the file parsed as a number."); return { checks: checks, worst: "bad", n: n, nBad: nBad, good: good }; }
+    if (n < 48) add("bad", "Too few readings (" + n + ")",
+      "The model needs at least 48 to measure fluctuation. The call below is not reliable.");
+    else if (n < 120) add("warn", "Short recording (" + n + " readings)",
+      "Training recordings ran 125 to 377 readings. Shorter traces give noisier features.");
+    else add("ok", n + " readings", "Within the range the model was trained on.");
+
+    var frac = nBad / n;
+    if (frac > 0.25) add("bad", "Contact lost on " + (frac * 100).toFixed(0) + "% of readings",
+      "Above 25% the recording was treated as unusable during training and excluded. Re-run the measurement.");
+    else if (frac > 0.05) add("warn", "Contact lost on " + (frac * 100).toFixed(1) + "% of readings",
+      "Overflow readings are interpolated over. A few are normal on a rough surface.");
+    else if (nBad > 0) add("ok", nBad + " contact-loss reading" + (nBad > 1 ? "s" : ""),
+      (frac * 100).toFixed(1) + "% of the trace, interpolated over.");
+    else add("ok", "No contact loss", "Every reading is a finite resistance.");
+
+    if (good.length > 1) {
+      var mn = Math.min.apply(null, good), mx = Math.max.apply(null, good);
+      var dec = Math.log10(mx / mn);
+      if (dec < 0.15) add("warn", "Almost no variation (" + dec.toFixed(2) + " decades)",
+        "The trace barely moves, so there may be no loading event in this file.");
+      else add("ok", "Spans " + dec.toFixed(2) + " decades", "Enough movement to analyse.");
+    }
+    if (meta && meta.nonNumeric > 3) add("warn", meta.nonNumeric + " rows could not be read as numbers",
+      "They were skipped. Check the file for stray text in the reading column.");
+    return { checks: checks, worst: worst, n: n, nBad: nBad, good: good, frac: frac };
+  }
+
+  /* ---------------- svg helpers ---------------- */
+
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function svgRoot(w, h) {
+    var s = el("svg", { viewBox: "0 0 " + w + " " + h, preserveAspectRatio: "xMidYMid meet",
+      role: "img", "font-family": "var(--f-mono)" });
+    return s;
+  }
+  function niceTicks(lo, hi, want) {
+    var span = hi - lo;
+    if (!(span > 0)) return [lo];
+    var step = Math.pow(10, Math.floor(Math.log10(span / want)));
+    var err = (span / want) / step;
+    if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+    var out = [], v = Math.ceil(lo / step) * step;
+    for (; v <= hi + step * 1e-9; v += step) out.push(Number(v.toFixed(10)));
+    return out;
+  }
+  function fmtOhm(log10v) {
+    var v = Math.pow(10, log10v);
+    var units = [[1e9, "G"], [1e6, "M"], [1e3, "k"], [1, ""]];
+    for (var i = 0; i < units.length; i++) {
+      if (v >= units[i][0] * 0.999) {
+        var x = v / units[i][0];
+        return (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2)) + units[i][1];
+      }
+    }
+    return v.toPrecision(2);
+  }
+
+  /* ---------------- chart: resistance trace ---------------- */
+
+  function drawTrace(host, raw, span) {
+    host.textContent = "";
+    var W = 900, H = 290, L = 56, R = 14, T = 22, B = 34;
+    var ls = E.logSignal(raw);
+    if (!ls.y) { host.appendChild(document.createTextNode("No finite readings to plot.")); return; }
+    var y = ls.y, bad = ls.bad, n = y.length;
+    var lo = Math.min.apply(null, Array.from(y)), hi = Math.max.apply(null, Array.from(y));
+    if (hi - lo < 0.3) { var m = (hi + lo) / 2; lo = m - 0.15; hi = m + 0.15; }
+    var pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    var X = function (i) { return L + (i / Math.max(1, n - 1)) * (W - L - R); };
+    var Y = function (v) { return T + (1 - (v - lo) / (hi - lo)) * (H - T - B); };
+    var s = svgRoot(W, H);
+    s.appendChild(el("title", {}, "Resistance against reading number"));
+
+    // active span
+    s.appendChild(el("rect", { x: X(span[0]), y: T, width: Math.max(1, X(span[1] - 1) - X(span[0])),
+      height: H - T - B, fill: "var(--accent)", opacity: ".09" }));
+    s.appendChild(el("line", { x1: X(span[0]), y1: T, x2: X(span[0]), y2: H - B,
+      stroke: "var(--accent)", "stroke-width": "1", "stroke-dasharray": "3 3", opacity: ".7" }));
+
+    // grid + y labels
+    niceTicks(lo, hi, 5).forEach(function (t) {
+      s.appendChild(el("line", { x1: L, y1: Y(t), x2: W - R, y2: Y(t), stroke: "var(--line)", "stroke-width": "1" }));
+      s.appendChild(el("text", { x: L - 8, y: Y(t) + 4, "text-anchor": "end", "font-size": "11",
+        fill: "var(--ink-3)" }, fmtOhm(t)));
+    });
+    niceTicks(1, n, 6).forEach(function (t) {
+      if (t < 1 || t > n) return;
+      s.appendChild(el("text", { x: X(t - 1), y: H - B + 18, "text-anchor": "middle", "font-size": "11",
+        fill: "var(--ink-3)" }, String(t)));
+    });
+    s.appendChild(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", "font-size": "11",
+      fill: "var(--ink-3)" }, "reading number"));
+    s.appendChild(el("text", { x: 12, y: T - 8, "font-size": "11", fill: "var(--ink-3)" }, "ohm"));
+
+    // the trace, split so interpolated stretches draw dashed
+    var segs = [], cur = null;
+    for (var i = 0; i < n; i++) {
+      var isBad = !!bad[i];
+      if (!cur || cur.bad !== isBad) { cur = { bad: isBad, pts: [] }; segs.push(cur); }
+      cur.pts.push([X(i), Y(y[i])]);
+    }
+    segs.forEach(function (sg, k) {
+      if (k > 0) sg.pts.unshift(segs[k - 1].pts[segs[k - 1].pts.length - 1]);
+      var d = sg.pts.map(function (p, j) { return (j ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join("");
+      s.appendChild(el("path", { d: d, fill: "none", stroke: sg.bad ? "var(--bad)" : "var(--accent)",
+        "stroke-width": sg.bad ? "1.2" : "1.4", "stroke-dasharray": sg.bad ? "2 2" : "none",
+        "stroke-linejoin": "round" }));
+    });
+    // contact-loss ticks on the top rule
+    for (var b = 0; b < n; b++) if (bad[b]) {
+      s.appendChild(el("line", { x1: X(b), y1: T - 10, x2: X(b), y2: T - 3, stroke: "var(--bad)", "stroke-width": "1.5" }));
+    }
+    s.appendChild(el("line", { x1: L, y1: H - B, x2: W - R, y2: H - B, stroke: "var(--line-2)", "stroke-width": "1" }));
+    host.appendChild(s);
+  }
+
+  /* ---------------- chart: fluctuation ---------------- */
+
+  function detrend(seg) {
+    var n = seg.length;
+    var w = Math.max(5, Math.min(31, Math.floor(n / 6)));
+    if (w % 2 === 0) w += 1;
+    var tr = E.movingAvgEdge(seg, w), out = new Float64Array(n);
+    for (var i = 0; i < n; i++) out[i] = seg[i] - tr[i];
+    return out;
+  }
+
+  function drawFluct(host, raw, span) {
+    host.textContent = "";
+    var ls = E.logSignal(raw);
+    if (!ls.y) return;
+    var seg = ls.y.slice(span[0], span[1]);
+    if (seg.length < 8) return;
+    var r = detrend(seg), n = r.length;
+    var W = 460, H = 210, L = 46, R = 10, T = 14, B = 30;
+    var amp = 0;
+    for (var i = 0; i < n; i++) amp = Math.max(amp, Math.abs(r[i]));
+    amp = Math.max(amp * 1.1, 0.05);
+    var X = function (k) { return L + (k / Math.max(1, n - 1)) * (W - L - R); };
+    var Y = function (v) { return T + (1 - (v + amp) / (2 * amp)) * (H - T - B); };
+    var s = svgRoot(W, H);
+    s.appendChild(el("title", {}, "Detrended log resistance over the scan"));
+    var sd = E.std(r);
+    s.appendChild(el("rect", { x: L, y: Y(sd), width: W - L - R, height: Math.max(1, Y(-sd) - Y(sd)),
+      fill: "var(--accent)", opacity: ".10" }));
+    niceTicks(-amp, amp, 4).forEach(function (t) {
+      s.appendChild(el("line", { x1: L, y1: Y(t), x2: W - R, y2: Y(t), stroke: "var(--line)", "stroke-width": "1" }));
+      s.appendChild(el("text", { x: L - 7, y: Y(t) + 4, "text-anchor": "end", "font-size": "10",
+        fill: "var(--ink-3)" }, t.toFixed(2)));
+    });
+    s.appendChild(el("line", { x1: L, y1: Y(0), x2: W - R, y2: Y(0), stroke: "var(--line-2)", "stroke-width": "1" }));
+    var d = "";
+    for (var j = 0; j < n; j++) d += (j ? "L" : "M") + X(j).toFixed(1) + " " + Y(r[j]).toFixed(1);
+    s.appendChild(el("path", { d: d, fill: "none", stroke: "var(--ink)", "stroke-width": "1", opacity: ".85" }));
+    s.appendChild(el("text", { x: L, y: H - 8, "font-size": "10.5", fill: "var(--ink-3)" },
+      "scan, reading " + (span[0] + 1) + " to " + span[1]));
+    s.appendChild(el("text", { x: W - R, y: H - 8, "text-anchor": "end", "font-size": "10.5", fill: "var(--accent)" },
+      "band = ±1σ = " + sd.toFixed(3) + " decades"));
+    host.appendChild(s);
+  }
+
+  /* ---------------- chart: fluctuation by scale ---------------- */
+
+  function drawScale(host, raw, span) {
+    host.textContent = "";
+    var ls = E.logSignal(raw);
+    if (!ls.y) return;
+    var seg = ls.y.slice(span[0], span[1]);
+    if (seg.length < 24) return;
+    var r = detrend(seg);
+    var ws = [3, 5, 9, 17, 33, 65].filter(function (w) { return w < r.length; });
+    var pts = ws.map(function (w) { return [w, E.median(E.movingStdPad(r, w))]; });
+    var W = 460, H = 210, L = 50, R = 14, T = 16, B = 34;
+    var lo = Math.min.apply(null, pts.map(function (p) { return p[1]; }));
+    var hi = Math.max.apply(null, pts.map(function (p) { return p[1]; }));
+    if (!(hi > 0)) return;
+    lo = Math.max(lo, hi / 100);
+    var lyl = Math.log10(lo) - 0.12, lyh = Math.log10(hi) + 0.12;
+    var lxl = Math.log10(ws[0]) - 0.08, lxh = Math.log10(ws[ws.length - 1]) + 0.08;
+    var X = function (w) { return L + (Math.log10(w) - lxl) / (lxh - lxl) * (W - L - R); };
+    var Y = function (v) { return T + (1 - (Math.log10(Math.max(v, lo / 2)) - lyl) / (lyh - lyl)) * (H - T - B); };
+    var s = svgRoot(W, H);
+    s.appendChild(el("title", {}, "Fluctuation amplitude against window length"));
+    niceTicks(lyl, lyh, 4).forEach(function (t) {
+      s.appendChild(el("line", { x1: L, y1: Y(Math.pow(10, t)), x2: W - R, y2: Y(Math.pow(10, t)),
+        stroke: "var(--line)", "stroke-width": "1" }));
+      s.appendChild(el("text", { x: L - 7, y: Y(Math.pow(10, t)) + 4, "text-anchor": "end", "font-size": "10",
+        fill: "var(--ink-3)" }, Math.pow(10, t) < 0.01 ? Math.pow(10, t).toExponential(0) : Math.pow(10, t).toFixed(3)));
+    });
+    var d = pts.map(function (p, i) { return (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1); }).join("");
+    s.appendChild(el("path", { d: d, fill: "none", stroke: "var(--accent)", "stroke-width": "1.8", "stroke-linejoin": "round" }));
+    pts.forEach(function (p) {
+      s.appendChild(el("circle", { cx: X(p[0]), cy: Y(p[1]), r: "3.2", fill: "var(--accent)" }));
+      s.appendChild(el("text", { x: X(p[0]), y: H - B + 17, "text-anchor": "middle", "font-size": "10.5",
+        fill: "var(--ink-3)" }, String(p[0])));
+    });
+    s.appendChild(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", "font-size": "10.5",
+      fill: "var(--ink-3)" }, "window length, readings"));
+    s.appendChild(el("text", { x: 2, y: T - 5, "font-size": "10.5", fill: "var(--ink-3)" }, "decades"));
+    host.appendChild(s);
+  }
+
+  /* ---------------- render ---------------- */
+
+  function callOf(p) { return p >= 0.6 ? "rough" : p <= 0.4 ? "smooth" : "unsure"; }
+
+  /* plain-language reading of each measurement, [when high, when low] */
+  var PHRASE = {
+    jitter_p90: ["big jumps between consecutive readings", "small jumps between consecutive readings"],
+    jitter_med: ["a large typical step size", "a small typical step size"],
+    std_log: ["a wide spread of resistance", "a narrow spread of resistance"],
+    range_dec: ["a wide dynamic range", "a narrow dynamic range"],
+    spike_rate: ["frequent outlier steps", "few outlier steps"],
+    spec_slope: ["a flat fluctuation spectrum", "a steep fluctuation spectrum"],
+    band_frac_hi: ["strong short-scale structure", "little short-scale structure"],
+    hf_ratio: ["a lot of high-frequency content", "little high-frequency content"],
+    spec_entropy: ["fluctuation spread across many scales", "fluctuation concentrated at a few scales"],
+    ac1_diff: ["steps that follow one another", "steps that reverse sharply"],
+    turn_rate: ["many changes of direction", "few changes of direction"],
+    perm_entropy: ["a disordered step pattern", "an orderly step pattern"],
+    wavelet_ratio: ["fine structure that survives at short windows", "fluctuation that lives mainly at long windows"],
+    ovf_frac: ["repeated loss of contact", "contact held throughout"],
+    ovf_run_max: ["a long break in contact", "no sustained break in contact"],
+    exc_height: ["a tall loading excursion", "a shallow loading excursion"]
+  };
+
+  function describe(res) {
+    var p = res.p, c = callOf(p);
+    if (c === "unsure") {
+      return "The measurements pull both ways and the probability sits near the middle. "
+        + "Treat this trace as undecided rather than as a weak rough or a weak smooth.";
+    }
+    var lead = res.detail.contrib.slice().sort(function (a, b) {
+      return Math.abs(b.contribution) - Math.abs(a.contribution);
+    }).filter(function (t) {
+      return (t.contribution > 0) === (p > 0.5) && isFinite(t.value);
+    }).slice(0, 2);
+    var phrases = lead.map(function (t) {
+      var pair = PHRASE[t.name];
+      return pair ? pair[t.z >= 0 ? 0 : 1] : MODEL.labels[t.name].toLowerCase();
+    });
+    var agree = res.cropProbs.filter(function (x) { return (x > 0.5) === (p > 0.5); }).length;
+    var body = phrases.length
+      ? "The scan shows " + phrases.join(" and ") + ", which matches the "
+        + c + " recordings in the training set."
+      : "The fluctuation features across the scan sit closer to the " + c + " recordings.";
+    return body + " " + agree + " of " + res.cropProbs.length
+      + " analysis windows read it the same way.";
+  }
+
+  function render(i) {
+    active = i;
+    var f = files[i];
+    if (!f) return;
+    var res = f.result, q = f.quality, p = res.p, c = callOf(p);
+    $("report").hidden = false;
+
+    $("callFile").textContent = f.name;
+    var ct = $("callText");
+    ct.textContent = c === "unsure" ? "Undecided" : c === "rough" ? "Rough" : "Smooth";
+    ct.className = "calltext " + c;
+    $("needle").style.left = (p * 100).toFixed(1) + "%";
+    $("pval").textContent = "P = " + p.toFixed(2);
+    $("whyText").textContent = describe(res);
+
+    var chips = $("whyChips"); chips.textContent = "";
+    function chip(txt, cls) { var e = document.createElement("span"); e.className = "chip " + (cls || ""); e.textContent = txt; chips.appendChild(e); }
+    var agree = res.cropProbs.filter(function (x) { return (x > 0.5) === (p > 0.5); }).length;
+    chip(agree + "/" + res.cropProbs.length + " windows agree", agree === res.cropProbs.length ? "" : "w");
+    chip("scan = readings " + (res.span[0] + 1) + "–" + res.span[1]);
+    chip(q.n + " readings");
+    if (q.nBad) chip(q.nBad + " contact loss", q.frac > 0.25 ? "w" : "");
+    if (q.worst !== "ok") chip(q.worst === "bad" ? "quality: unusable" : "quality: check below", "w");
+
+    drawTrace($("chartTrace"), f.raw, res.span);
+    drawFluct($("chartFluct"), f.raw, res.span);
+    drawScale($("chartScale"), f.raw, res.span);
+    $("spanLabel").textContent = "scan " + (res.span[0] + 1) + "–" + res.span[1] + " of " + q.n;
+
+    /* evidence */
+    var ev = $("evidence"); ev.textContent = "";
+    var top = res.detail.contrib.slice().sort(function (a, b) {
+      return Math.abs(b.contribution) - Math.abs(a.contribution);
+    }).slice(0, 7);
+    var maxAbs = Math.max.apply(null, top.map(function (t) { return Math.abs(t.contribution); })) || 1;
+    top.forEach(function (t) {
+      var row = document.createElement("div"); row.className = "evrow";
+      var lab = document.createElement("div"); lab.className = "lab";
+      lab.innerHTML = "<b></b><span></span>";
+      lab.querySelector("b").textContent = MODEL.labels[t.name];
+      lab.querySelector("span").textContent = fmtVal(t.name, t.value);
+      var bar = document.createElement("div"); bar.className = "evbar";
+      var w = Math.abs(t.contribution) / maxAbs * 50;
+      var fill = document.createElement("i");
+      fill.style.background = t.contribution > 0 ? "var(--rough)" : "var(--smooth)";
+      fill.style.width = w + "%";
+      if (t.contribution > 0) fill.style.left = "50%"; else fill.style.right = "50%";
+      var mid = document.createElement("span"); mid.className = "mid";
+      bar.appendChild(fill); bar.appendChild(mid);
+      bar.title = (t.contribution > 0 ? "+" : "") + t.contribution.toFixed(2) + " log-odds";
+      row.appendChild(lab); row.appendChild(bar); ev.appendChild(row);
+    });
+
+    /* stats */
+    var good = q.good, st = $("stats"); st.textContent = "";
+    function stat(k, v) {
+      var d = document.createElement("div");
+      var dt = document.createElement("dt"); dt.textContent = k;
+      var dd = document.createElement("dd"); dd.textContent = v;
+      d.appendChild(dt); d.appendChild(dd); st.appendChild(d);
+    }
+    if (good.length) {
+      var srt = good.slice().sort(function (a, b) { return a - b; });
+      stat("Readings", String(q.n));
+      stat("Median R", fmtOhm(Math.log10(srt[srt.length >> 1])) + "Ω");
+      stat("Minimum", fmtOhm(Math.log10(srt[0])) + "Ω");
+      stat("Maximum", fmtOhm(Math.log10(srt[srt.length - 1])) + "Ω");
+      stat("Range", Math.log10(srt[srt.length - 1] / srt[0]).toFixed(2) + " dec");
+      stat("Contact loss", q.nBad + " (" + (q.frac * 100).toFixed(1) + "%)");
+      stat("Scan length", (res.span[1] - res.span[0]) + " rdg");
+      stat("Fluctuation", res.features.std_log.toFixed(3) + " dec");
+    }
+
+    /* checks */
+    var ul = $("checks"); ul.textContent = "";
+    q.checks.forEach(function (ck) {
+      var li = document.createElement("li");
+      var dot = document.createElement("span"); dot.className = "dot " + ck.level;
+      var body = document.createElement("div");
+      var strong = document.createElement("div"); strong.textContent = ck.text;
+      var sm = document.createElement("small"); sm.textContent = ck.detail;
+      body.appendChild(strong); body.appendChild(sm);
+      li.appendChild(dot); li.appendChild(body); ul.appendChild(li);
+    });
+
+    /* feature table */
+    var tb = $("featBody"); tb.textContent = "";
+    MODEL.features.forEach(function (k, idx) {
+      var ref = MODEL.reference[k], v = res.vector[idx];
+      var tr = document.createElement("tr");
+      function td(txt, cls) { var d = document.createElement("td"); if (cls) d.className = cls; d.textContent = txt; return d; }
+      tr.appendChild(td(MODEL.labels[k]));
+      tr.appendChild(td(isFinite(v) ? fmtNum(v) : "n/a", "num"));
+      tr.appendChild(td(fmtNum(ref.rough[1]), "num"));
+      tr.appendChild(td(fmtNum(ref.smooth[1]), "num"));
+      var cell = document.createElement("td");
+      var lo = Math.min(ref.lo, ref.rough[0], ref.smooth[0], isFinite(v) ? v : ref.lo);
+      var hi = Math.max(ref.hi, ref.rough[2], ref.smooth[2], isFinite(v) ? v : ref.hi);
+      if (!(hi > lo)) { hi = lo + 1; }
+      var pc = function (x) { return ((x - lo) / (hi - lo) * 100).toFixed(2) + "%"; };
+      var strip = document.createElement("div"); strip.className = "strip";
+      function band(cls, a, b) {
+        var e = document.createElement("span"); e.className = "band " + cls;
+        e.style.left = pc(a); e.style.width = Math.max(1.5, (b - a) / (hi - lo) * 100) + "%";
+        strip.appendChild(e);
+      }
+      band("r", ref.rough[0], ref.rough[2]);
+      band("s", ref.smooth[0], ref.smooth[2]);
+      if (isFinite(v)) { var mk = document.createElement("span"); mk.className = "mk"; mk.style.left = pc(v); strip.appendChild(mk); }
+      strip.title = "rough band " + fmtNum(ref.rough[0]) + " to " + fmtNum(ref.rough[2])
+        + ", smooth band " + fmtNum(ref.smooth[0]) + " to " + fmtNum(ref.smooth[2]);
+      cell.appendChild(strip); tr.appendChild(cell);
+      tb.appendChild(tr);
+    });
+
+    /* batch */
+    var bw = $("batchWrap");
+    bw.hidden = files.length < 2;
+    if (files.length >= 2) {
+      $("batchCount").textContent = files.length + " files";
+      var bb = $("batchBody"); bb.textContent = "";
+      files.forEach(function (ff, k) {
+        var tr = document.createElement("tr");
+        if (k === i) tr.className = "sel";
+        tr.tabIndex = 0;
+        var cc = callOf(ff.result.p);
+        function td(html) { var d = document.createElement("td"); d.appendChild(html); return d; }
+        function txt(t) { return document.createTextNode(t); }
+        tr.appendChild(td(txt(ff.name)));
+        var tag = document.createElement("span"); tag.className = "tag " + cc;
+        tag.textContent = cc === "unsure" ? "UNDECIDED" : cc.toUpperCase();
+        tr.appendChild(td(tag));
+        var pv = document.createElement("span"); pv.className = "mono"; pv.textContent = ff.result.p.toFixed(2);
+        tr.appendChild(td(pv));
+        tr.appendChild(td(txt(String(ff.quality.n))));
+        tr.appendChild(td(txt((ff.quality.frac * 100).toFixed(1) + "%")));
+        var qd = document.createElement("span"); qd.className = "dot " + ff.quality.worst;
+        qd.style.display = "inline-block"; qd.style.width = "9px"; qd.style.height = "9px";
+        qd.style.borderRadius = "50%";
+        tr.appendChild(td(qd));
+        tr.addEventListener("click", function () { render(k); });
+        tr.addEventListener("keydown", function (e2) { if (e2.key === "Enter" || e2.key === " ") { e2.preventDefault(); render(k); } });
+        bb.appendChild(tr);
+      });
+    }
+    $("clear").hidden = false;
+    $("report").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function fmtNum(v) {
+    if (!isFinite(v)) return "n/a";
+    var a = Math.abs(v);
+    if (a === 0) return "0";
+    if (a < 0.001 || a >= 1e5) return v.toExponential(2);
+    return v.toPrecision(a < 1 ? 3 : 4).replace(/\.?0+$/, "");
+  }
+  function fmtVal(name, v) {
+    if (!isFinite(v)) return "not measurable";
+    if (name === "ovf_frac" || name === "ovf_run_max") return (v * 100).toFixed(1) + "% of readings";
+    if (name === "range_dec" || name === "exc_height") return v.toFixed(2) + " decades";
+    if (name === "jitter_p90" || name === "jitter_med" || name === "std_log") return v.toFixed(3) + " decades";
+    return fmtNum(v);
+  }
+
+  /* ---------------- intake ---------------- */
+
+  function addFiles(list) {
+    var pending = list.length, errs = $("errs");
+    Array.prototype.forEach.call(list, function (file) {
+      var rd = new FileReader();
+      rd.onload = function () {
+        try {
+          var parsed = parseCsv(String(rd.result), file.name);
+          if (!parsed.values.length) throw new Error("no readings could be parsed from this file");
+          var q = quality(parsed.values, parsed.meta);
+          var res = E.analyse(parsed.values, MODEL);
+          files.push({ name: file.name, raw: parsed.values, result: res, quality: q, meta: parsed.meta });
+        } catch (e) {
+          var d = document.createElement("div");
+          d.className = "card err"; d.style.marginTop = "16px";
+          d.innerHTML = "<h3></h3><p class=\"sub\"></p>";
+          d.querySelector("h3").textContent = "Could not read " + file.name;
+          d.querySelector("p").textContent = e.message
+            + ". The file needs a reading number and a resistance value per row.";
+          errs.appendChild(d);
+        }
+        if (--pending === 0 && files.length) render(files.length - 1);
+      };
+      rd.onerror = function () { if (--pending === 0 && files.length) render(files.length - 1); };
+      rd.readAsText(file);
+    });
+  }
+
+  function addText(name, text) {
+    var parsed = parseCsv(text, name);
+    var q = quality(parsed.values, parsed.meta);
+    var res = E.analyse(parsed.values, MODEL);
+    files.push({ name: name, raw: parsed.values, result: res, quality: q, meta: parsed.meta });
+    render(files.length - 1);
+  }
+
+  /* ---------------- report text ---------------- */
+
+  function reportText() {
+    var f = files[active]; if (!f) return "";
+    var r = f.result, c = callOf(r.p);
+    var L = [];
+    L.push("SURFACE FINISH CLASSIFICATION");
+    L.push("file: " + f.name);
+    L.push("call: " + (c === "unsure" ? "UNDECIDED" : c.toUpperCase()) + "   P(rough) = " + r.p.toFixed(3));
+    L.push("scan analysed: readings " + (r.span[0] + 1) + " to " + r.span[1] + " of " + f.quality.n);
+    L.push("window agreement: " + r.cropProbs.filter(function (x) { return (x > 0.5) === (r.p > 0.5); }).length
+      + " of " + r.cropProbs.length);
+    L.push("");
+    L.push("DATA QUALITY");
+    f.quality.checks.forEach(function (ck) { L.push("  [" + ck.level + "] " + ck.text); });
+    L.push("");
+    L.push("FEATURES  (value | rough median | smooth median)");
+    MODEL.features.forEach(function (k, i) {
+      var ref = MODEL.reference[k];
+      L.push("  " + MODEL.labels[k].padEnd(30) + fmtNum(r.vector[i]).padStart(12)
+        + fmtNum(ref.rough[1]).padStart(14) + fmtNum(ref.smooth[1]).padStart(14));
+    });
+    L.push("");
+    L.push("MODEL: logistic regression on 16 scale-free features of log10 resistance.");
+    L.push("Leave-one-specimen-out accuracy on " + MODEL.training.n_recordings
+      + " usable recordings: " + (MODEL.training.loso_accuracy * 100).toFixed(1) + "%.");
+    return L.join("\n");
+  }
+
+  /* ---------------- model card ---------------- */
+
+  function buildModelCard() {
+    var t = MODEL.training;
+    var g = $("mcGrid");
+    function sect(h, html) {
+      var s = document.createElement("section");
+      var hh = document.createElement("h3"); hh.textContent = h;
+      s.appendChild(hh);
+      var d = document.createElement("div"); d.innerHTML = html;
+      s.appendChild(d); g.appendChild(s);
+    }
+    sect("Training data",
+      "<p>" + t.n_recordings + " labelled recordings (" + t.n_rough + " rough, " + t.n_smooth
+      + " smooth) from two measurement campaigns, cut into " + t.n_real_rows
+      + " overlapping windows. " + t.n_synth + " generated traces per class were added at low weight "
+      + "to steady the fit.</p>");
+    sect("Accuracy",
+      "<p>Leave-one-specimen-out, holding out a specimen's rough and smooth recordings together: <b>"
+      + (t.loso_accuracy * 100).toFixed(1) + "%</b> (" + Math.round(t.loso_accuracy * t.n_recordings)
+      + " of " + t.n_recordings + "). Without the generated traces it is "
+      + (t.loso_accuracy_real_only * 100).toFixed(1) + "%. The gap is one borderline recording, "
+      + "which is well inside the noise at this sample size.</p>");
+    sect("What it measures",
+      "<p>Every feature is computed on log10 resistance, so multiplying a whole trace by any constant "
+      + "leaves the answer unchanged. A rough surface shows a wider dynamic range, a taller loading "
+      + "excursion, more momentary contact loss and more fine structure in the scan.</p>");
+    sect("Where it is weak",
+      "<ul>"
+      + "<li>" + t.n_recordings + " recordings is a small training set. Expect the accuracy above to move by "
+      + "several points once more specimens are measured.</li>"
+      + "<li>Rough and smooth for each specimen were recorded on different days, so some day-to-day "
+      + "variation is mixed in with surface finish.</li>"
+      + "<li>It answers rough or smooth only. It does not estimate Ra or any other roughness number.</li>"
+      + "<li>Recordings with more than " + (t.max_overflow * 100).toFixed(0)
+      + "% contact loss were excluded as unusable: " + t.dropped.join(", ") + ".</li>"
+      + "</ul>");
+
+    var tbl = $("losoTable");
+    tbl.innerHTML = "<thead><tr><th>Recording</th><th>Labelled</th><th>P(rough)</th><th>Result</th></tr></thead>";
+    var tb = document.createElement("tbody");
+    Object.keys(t.loso_detail).forEach(function (k) {
+      var d = t.loso_detail[k], ok = (d.p > 0.5) === !!d.truth;
+      var tr = document.createElement("tr");
+      function td(txt, cls) { var e = document.createElement("td"); if (cls) e.className = cls; e.textContent = txt; return e; }
+      tr.appendChild(td(k));
+      tr.appendChild(td(d.truth ? "rough" : "smooth"));
+      tr.appendChild(td(d.p.toFixed(2), "mono"));
+      var r = td(ok ? "correct" : "missed");
+      r.style.color = ok ? "var(--ok)" : "var(--bad)";
+      tr.appendChild(r);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    $("footVer").textContent = "model v" + MODEL.version + " · " + MODEL.features.length + " features";
+    $("hdrStats").innerHTML =
+      "<span>validated <b>" + (t.loso_accuracy * 100).toFixed(0) + "%</b></span>"
+      + "<span><b>" + t.n_recordings + "</b> recordings</span>"
+      + "<span><b>" + MODEL.features.length + "</b> features</span>";
+  }
+
+  /* ---------------- wiring ---------------- */
+
+  function init() {
+    buildModelCard();
+    var sg = $("samples");
+    SAMPLES.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "btn";
+      var strong = document.createElement("span"); strong.textContent = s.title;
+      var sm = document.createElement("small"); sm.textContent = s.note;
+      b.appendChild(strong); b.appendChild(sm);
+      b.addEventListener("click", function () { addText(s.file, s.csv); });
+      sg.appendChild(b);
+    });
+
+    $("pick").addEventListener("click", function () { $("file").click(); });
+    $("file").addEventListener("change", function (e) { if (e.target.files.length) addFiles(e.target.files); e.target.value = ""; });
+    $("clear").addEventListener("click", function () {
+      files = []; active = -1; $("report").hidden = true; $("errs").textContent = "";
+      $("clear").hidden = true; window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    var drop = $("drop");
+    ["dragenter", "dragover"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add("over"); });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove("over"); });
+    });
+    drop.addEventListener("drop", function (e) {
+      if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+    $("copyBtn").addEventListener("click", function () {
+      var txt = reportText(), btn = $("copyBtn");
+      function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = "Copy report"; }, 1600); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(function () { done("Copied"); }, function () { fallback(); });
+      } else fallback();
+      function fallback() {
+        var ta = document.createElement("textarea");
+        ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { done("Copied"); } catch (e) { done("Select and copy"); }
+        setTimeout(function () { ta.remove(); }, 4000);
+      }
+    });
+
+    // open on a measured example so the page shows what it does
+    addText(SAMPLES[0].file, SAMPLES[0].csv);
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
+
+</script>

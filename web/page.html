@@ -1,0 +1,277 @@
+<title>Surface Finish Classifier</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+/* Layout: instrument panel. One column, verdict first, then paired analysis cards. */
+:root{
+  --bg:#F2F5F5; --surface:#FFFFFF; --surface-2:#E9EEEE; --inset:#F7F9F9;
+  --ink:#15201F; --ink-2:#5B6C6B; --ink-3:#8A9998; --line:#D5DDDD; --line-2:#C2CDCD;
+  --accent:#0B6E7F; --on-accent:#FFFFFF; --rough:#A84A14; --smooth:#2A6A8C;
+  --warn:#8C6103; --ok:#2C6A4E; --bad:#9B2F21;
+  --f-display:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --f-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0D1316; --surface:#141C20; --surface-2:#1B252A; --inset:#111A1D;
+  --ink:#E1EAEB; --ink-2:#92A4A7; --ink-3:#6B7C80; --line:#263238; --line-2:#334249;
+  --accent:#4BBAC9; --on-accent:#07171B; --rough:#E08A4F; --smooth:#74B4D8;
+  --warn:#D4A544; --ok:#6CB994; --bad:#E0776A;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0D1316; --surface:#141C20; --surface-2:#1B252A; --inset:#111A1D;
+  --ink:#E1EAEB; --ink-2:#92A4A7; --ink-3:#6B7C80; --line:#263238; --line-2:#334249;
+  --accent:#4BBAC9; --on-accent:#07171B; --rough:#E08A4F; --smooth:#74B4D8;
+  --warn:#D4A544; --ok:#6CB994; --bad:#E0776A;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0}
+h1{font-size:clamp(26px,4.4vw,36px);font-weight:600;letter-spacing:-.015em}
+h2{font-size:19px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--f-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2);font-size:14px}
+
+header.top{display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-end;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid var(--line)}
+header.top .lede{max-width:56ch;margin-top:6px;color:var(--ink-2);font-size:14.5px}
+.statline{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--f-mono);font-size:12px;color:var(--ink-2)}
+.statline b{color:var(--ink);font-weight:600}
+
+/* ---- intake ---- */
+.intake{margin-top:24px;display:grid;grid-template-columns:1.35fr 1fr;gap:16px}
+@media(max-width:720px){.intake{grid-template-columns:1fr}}
+.drop{border:1.5px dashed var(--line-2);border-radius:10px;background:var(--surface);padding:22px 20px;display:flex;flex-direction:column;gap:10px;justify-content:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:var(--surface-2)}
+.drop .big{font-family:var(--f-display);font-size:17px;font-weight:600}
+.btn{font-family:var(--f-body);font-size:13.5px;font-weight:500;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);border-radius:7px;padding:7px 13px;cursor:pointer;transition:background .13s,border-color .13s}
+.btn:hover{background:var(--surface-2);border-color:var(--accent)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.samples{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.samplegrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.samplegrid .btn{text-align:left;display:flex;flex-direction:column;gap:1px;padding:8px 10px}
+.samplegrid .btn small{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.02em}
+
+/* ---- verdict ---- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.verdict{margin-top:22px;display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:0}
+@media(max-width:720px){.verdict{grid-template-columns:1fr}}
+.verdict .call{padding:22px 24px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:4px;justify-content:center}
+@media(max-width:720px){.verdict .call{border-right:0;border-bottom:1px solid var(--line)}}
+.calltext{font-family:var(--f-display);font-size:clamp(32px,6.5vw,46px);font-weight:600;line-height:1.05;letter-spacing:-.02em}
+.calltext.rough{color:var(--rough)} .calltext.smooth{color:var(--smooth)} .calltext.unsure{color:var(--warn)}
+.gauge{margin-top:12px}
+.gauge .track{height:9px;border-radius:5px;background:linear-gradient(90deg,var(--smooth) 0%,var(--surface-2) 44%,var(--surface-2) 56%,var(--rough) 100%);position:relative;border:1px solid var(--line)}
+.gauge .needle{position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;background:var(--ink);transform:translateX(-50%)}
+.gauge .ends{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);margin-top:5px;letter-spacing:.04em}
+.verdict .why{padding:20px 24px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.why .headline{font-size:14.5px;color:var(--ink-2);max-width:62ch}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--f-mono);font-size:11px;letter-spacing:.02em;border:1px solid var(--line-2);border-radius:999px;padding:3px 9px;color:var(--ink-2);background:var(--inset)}
+.chip.r{color:var(--rough);border-color:color-mix(in srgb,var(--rough) 45%,var(--line))}
+.chip.s{color:var(--smooth);border-color:color-mix(in srgb,var(--smooth) 45%,var(--line))}
+.chip.w{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+
+/* ---- grids & cards ---- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 18px;min-width:0}
+.card>header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:4px}
+.card .note{font-size:12.5px;color:var(--ink-3);margin-bottom:10px;max-width:60ch}
+svg{display:block;width:100%;height:auto;overflow:visible}
+
+/* ---- stats ---- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stats div{background:var(--surface);padding:10px 12px}
+.stats dt{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.stats dd{margin:2px 0 0;font-family:var(--f-mono);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
+
+/* ---- checks ---- */
+ul.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+ul.checks li{display:grid;grid-template-columns:16px 1fr;gap:9px;align-items:start;font-size:13.5px}
+ul.checks .dot{width:9px;height:9px;border-radius:50%;margin-top:6px}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+ul.checks small{display:block;color:var(--ink-3);font-size:12px}
+
+/* ---- evidence ---- */
+.ev{display:flex;flex-direction:column;gap:9px}
+.evrow{display:grid;grid-template-columns:1fr 150px;gap:10px;align-items:center;font-size:13px}
+@media(max-width:420px){.evrow{grid-template-columns:1fr 96px}}
+.evrow .lab{min-width:0}
+.evrow .lab b{font-weight:500}
+.evrow .lab span{display:block;font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
+.evbar{height:16px;position:relative;background:var(--inset);border:1px solid var(--line);border-radius:3px}
+.evbar i{position:absolute;top:0;bottom:0;display:block}
+.evbar .mid{position:absolute;top:-2px;bottom:-2px;left:50%;width:1px;background:var(--line-2)}
+
+/* ---- feature table ---- */
+.ftable{width:100%;min-width:600px;border-collapse:collapse;font-size:13px}
+.ftable th{text-align:left;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:0 8px 7px 0;border-bottom:1px solid var(--line)}
+.ftable td{padding:7px 8px 7px 0;border-bottom:1px solid var(--line);vertical-align:middle}
+.ftable td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.strip{position:relative;height:14px;min-width:110px}
+.strip .band{position:absolute;height:5px;border-radius:3px;opacity:.5}
+.strip .band.r{top:1px;background:var(--rough)} .strip .band.s{top:8px;background:var(--smooth)}
+.strip .mk{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);transform:translateX(-50%)}
+
+/* ---- batch ---- */
+.btable{width:100%;min-width:520px;border-collapse:collapse;font-size:13.5px}
+.btable th{text-align:left;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);font-weight:500;padding:0 10px 7px 0;border-bottom:1px solid var(--line)}
+.btable td{padding:8px 10px 8px 0;border-bottom:1px solid var(--line)}
+.btable tr.sel td{background:var(--surface-2)}
+.btable tbody tr{cursor:pointer}
+.btable tbody tr:hover td{background:var(--surface-2)}
+.tag{font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.05em;padding:2px 7px;border-radius:4px;border:1px solid}
+.tag.rough{color:var(--rough);border-color:color-mix(in srgb,var(--rough) 40%,transparent);background:color-mix(in srgb,var(--rough) 10%,transparent)}
+.tag.smooth{color:var(--smooth);border-color:color-mix(in srgb,var(--smooth) 40%,transparent);background:color-mix(in srgb,var(--smooth) 10%,transparent)}
+.tag.unsure{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent);background:color-mix(in srgb,var(--warn) 10%,transparent)}
+
+/* ---- model card ---- */
+.modelcard{margin-top:26px;border-top:1px solid var(--line);padding-top:22px}
+.mc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px 26px;margin-top:14px}
+.mc-grid section h3{margin-bottom:5px}
+.mc-grid p{font-size:13.5px;color:var(--ink-2);max-width:48ch}
+.mc-grid ul{margin:5px 0 0;padding-left:17px;font-size:13.5px;color:var(--ink-2)}
+.mc-grid li{margin-bottom:3px}
+.fold{margin-top:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.fold summary{cursor:pointer;padding:11px 15px;font-family:var(--f-mono);font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+.fold summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.fold .body{padding:0 15px 15px;overflow-x:auto}
+.err{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));background:color-mix(in srgb,var(--bad) 7%,var(--surface))}
+footer.foot{margin-top:30px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-3);display:flex;flex-wrap:wrap;gap:10px 20px;justify-content:space-between}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Two-point resistance log &middot; surface finish</p>
+      <h1>Surface Finish Classifier</h1>
+      <p class="lede">Upload a resistance versus reading-number CSV from the probe and the model calls the
+        surface rough or smooth, then shows the measurement it based that on.</p>
+    </div>
+    <div class="statline" id="hdrStats"></div>
+  </header>
+
+  <div class="intake">
+    <div class="drop" id="drop">
+      <p class="big">Drop CSV files here</p>
+      <p class="sub">Keithley reading logs, or any CSV with a reading number and a resistance column.
+        Several files at once are fine.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px">
+        <button class="btn primary" id="pick" type="button">Choose files</button>
+        <button class="btn" id="clear" type="button" hidden>Clear</button>
+      </div>
+      <input type="file" id="file" accept=".csv,text/csv,text/plain" multiple hidden>
+    </div>
+    <div class="samples">
+      <p class="eyebrow">Measured examples</p>
+      <p class="sub" style="margin-top:4px;font-size:13px">Four real recordings from the study, held in the page.</p>
+      <div class="samplegrid" id="samples"></div>
+    </div>
+  </div>
+
+  <div id="report" hidden>
+    <div class="panel verdict">
+      <div class="call">
+        <p class="eyebrow" id="callFile">&nbsp;</p>
+        <p class="calltext" id="callText">&mdash;</p>
+        <div class="gauge">
+          <div class="track"><span class="needle" id="needle" style="left:50%"></span></div>
+          <div class="ends"><span>smooth</span><span id="pval">P = 0.50</span><span>rough</span></div>
+        </div>
+      </div>
+      <div class="why">
+        <p class="headline" id="whyText"></p>
+        <div class="chips" id="whyChips"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto">
+          <button class="btn" id="copyBtn" type="button">Copy report</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="batchWrap" class="card" style="margin-top:16px" hidden>
+      <header><h2>All uploaded files</h2><span class="eyebrow" id="batchCount"></span></header>
+      <p class="note">Select a row to see its full analysis.</p>
+      <div style="overflow-x:auto"><table class="btable">
+        <thead><tr><th>File</th><th>Call</th><th>P(rough)</th><th>Readings</th><th>Contact loss</th><th>Quality</th></tr></thead>
+        <tbody id="batchBody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <header><h2>Resistance trace</h2><span class="eyebrow" id="spanLabel"></span></header>
+      <p class="note">Log scale. The shaded stretch is the loaded scan the model reads; the quiet rest
+        baseline before it and the settled tail are outside it. Marks on the top rule are readings where the
+        probe lost contact.</p>
+      <div id="chartTrace"></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <header><h2>Fluctuation</h2></header>
+        <p class="note">The scan with its slow drift removed, in decades of resistance. This is the
+          signal the roughness features are measured on.</p>
+        <div id="chartFluct"></div>
+      </div>
+      <div class="card">
+        <header><h2>Fluctuation by scale</h2></header>
+        <p class="note">How much the trace varies over windows of 3 to 65 readings. A rough surface keeps
+          more variation at the short scales.</p>
+        <div id="chartScale"></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <header><h2>What drove the call</h2></header>
+        <p class="note">Each measurement's push on the decision, in log-odds. Bars to the right argue
+          rough, to the left smooth.</p>
+        <div class="ev" id="evidence"></div>
+      </div>
+      <div class="card">
+        <header><h2>Measurement summary</h2></header>
+        <p class="note">Taken over the whole file.</p>
+        <dl class="stats" id="stats"></dl>
+        <h3 style="margin-top:16px;margin-bottom:8px">Data quality</h3>
+        <ul class="checks" id="checks"></ul>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <header><h2>Every feature against the training set</h2></header>
+      <p class="note">The marker is this recording. The bars behind it span the 10th to 90th percentile of
+        the rough and smooth recordings the model was trained on.</p>
+      <div style="overflow-x:auto"><table class="ftable">
+        <thead><tr><th>Measurement</th><th style="text-align:right">This file</th>
+          <th style="text-align:right">Rough median</th><th style="text-align:right">Smooth median</th>
+          <th style="width:180px">Position</th></tr></thead>
+        <tbody id="featBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div id="errs"></div>
+
+  <div class="modelcard">
+    <p class="eyebrow">Model card</p>
+    <h2 style="margin-top:4px">How this was built, and what it cannot do</h2>
+    <div class="mc-grid" id="mcGrid"></div>
+    <details class="fold">
+      <summary>Per-recording validation results</summary>
+      <div class="body"><table class="btable" id="losoTable"></table></div>
+    </details>
+  </div>
+
+  <footer class="foot">
+    <span>Features and model run in this page. Nothing is uploaded.</span>
+    <span class="mono" id="footVer"></span>
+  </footer>
+</div>
